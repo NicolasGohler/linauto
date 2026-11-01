@@ -17,6 +17,10 @@ from releasi.linkedin.navigator import LinkedInNavigator
 from releasi.linkedin.detector import LimitDetector, DetectionResult, DetectionType
 from releasi.linkedin import selectors
 from releasi.safety.delays import DelayGenerator
+from releasi.linkedin.withdrawal_safety import (
+    MAX_WITHDRAWALS, WITHDRAWAL_JOB_TIMEOUT, WITHDRAWAL_STEP_TIMEOUT,
+    WithdrawalStopped, invitation_pairs, withdrawal_receipt,
+)
 
 logger = structlog.get_logger()
 
@@ -1774,11 +1778,47 @@ class LinkedInActions:
         """Backwards-compat wrapper — delegates to withdraw_invitations(order='oldest')."""
         return await self.withdraw_invitations(count, order="oldest", already_on_page=already_on_page)
 
+    async def _withdrawal_evaluate(self, script, arg=None):
+        if any(part in self.page.url for part in selectors.LOGIN_URL_PATTERNS):
+            raise WithdrawalStopped("LinkedIn requested login; withdrawal stopped.", account_action="cookie_expired")
+        result = await asyncio.wait_for(
+            self.page.evaluate(script, arg), timeout=WITHDRAWAL_STEP_TIMEOUT,
+        )
+        if any(part in self.page.url for part in selectors.LOGIN_URL_PATTERNS):
+            raise WithdrawalStopped("LinkedIn requested login; withdrawal stopped.", account_action="cookie_expired")
+        if isinstance(result, dict):
+            if any(part in result.get("final_url", "") for part in selectors.LOGIN_URL_PATTERNS):
+                raise WithdrawalStopped("LinkedIn requested login; withdrawal stopped.", account_action="cookie_expired")
+            if result.get("status") in (401, 403, 429):
+                raise WithdrawalStopped("LinkedIn restricted this request; the account was paused for review.", account_action="paused")
+        return result
+
     async def withdraw_invitations(
+        self, count: int, order: str = "oldest", already_on_page: bool = False,
+        *, on_attempt=None, on_withdrawn=None,
+    ) -> list:
+        """Bounded withdrawal with no scrolling, fallback, or automatic retry."""
+        if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= MAX_WITHDRAWALS:
+            raise WithdrawalStopped("Withdrawal count must be between 1 and 100.")
+        if order not in ("oldest", "newest"):
+            raise WithdrawalStopped("Withdrawal order must be oldest or newest.")
+        try:
+            return await asyncio.wait_for(
+                self._withdraw_invitations_sdui(
+                    count, order, already_on_page, on_attempt, on_withdrawn,
+                ),
+                timeout=WITHDRAWAL_JOB_TIMEOUT,
+            )
+        except asyncio.TimeoutError as exc:
+            raise WithdrawalStopped("Withdrawal deadline exceeded; review saved progress before retrying.") from exc
+
+    async def _withdraw_invitations_sdui(
         self,
         count: int,
         order: str = "oldest",
         already_on_page: bool = False,
+        on_attempt=None,
+        on_withdrawn=None,
     ) -> list:
         """
         Withdraw N invitations via LinkedIn's SDUI pagination API.
@@ -1791,33 +1831,37 @@ class LinkedInActions:
         DOM-scroll approach caused on the 3 GB host.
         """
         if not already_on_page:
-            nav = await self.navigator.go_to_invitation_manager()
+            nav = await asyncio.wait_for(self.navigator.go_to_invitation_manager(), timeout=WITHDRAWAL_STEP_TIMEOUT)
             if not nav.success or not nav.session_valid:
-                return []
+                raise WithdrawalStopped("LinkedIn navigation or authentication failed; withdrawal stopped.",
+                                        account_action="cookie_expired" if not nav.session_valid else None)
 
         # ── Extract CSRF token ────────────────────────────────────────────────
         csrf = ""
-        for ck in await self.page.context.cookies():
+        for ck in await asyncio.wait_for(self.page.context.cookies(), timeout=WITHDRAWAL_STEP_TIMEOUT):
             if ck["name"] == "JSESSIONID":
                 csrf = ck["value"].strip('"')
                 break
         if not csrf:
-            logger.warning("action.withdraw_no_csrf")
-            return []
+            raise WithdrawalStopped("LinkedIn session metadata is unavailable; withdrawal stopped.")
 
         # ── Read pending count from DOM (People pill) ────────────────────────
-        dom_total: int = await self.page.evaluate("""() => {
+        dom_total = await self._withdrawal_evaluate("""() => {
             for (const el of document.querySelectorAll('a,li,span,button,[role="tab"]')) {
                 const m = (el.textContent||'').match(/^\\s*People\\s*\\((\\d[\\d,]*)\\)\\s*$/i);
                 if (m) return parseInt(m[1].replace(/,/g,''), 10);
             }
-            return 0;
+            return null;
         }""")
+        if isinstance(dom_total, bool) or not isinstance(dom_total, int) or dom_total < 0:
+            raise WithdrawalStopped("LinkedIn invitation count could not be verified; withdrawal stopped.")
         logger.debug("action.withdraw_dom_total", total=dom_total)
 
         if dom_total == 0:
             logger.warning("action.withdraw_zero_total")
             return []
+
+        count = min(count, dom_total)
 
         # ── Build SDUI pagination payload ────────────────────────────────────
         PAGINATION_URL = (
@@ -1867,11 +1911,11 @@ class LinkedInActions:
                         "$case": "itemDistanceTrigger",
                         "itemDistanceTrigger": {
                             "$type": "proto.sdui.actions.requests.ItemDistanceTrigger",
-                            "preloadDistance": 3,
-                            "preloadLength": 250,
+                            "preloadDistance": 0,
+                            "preloadLength": 10,
                         },
                     },
-                    "retryCount": 2,
+                    "retryCount": 0,
                 },
             }
 
@@ -1891,15 +1935,19 @@ class LinkedInActions:
         # jumping to a high startIndex. LinkedIn's server-side pager returns
         # HTTP 500 if the first request skips ahead without being initialized.
         if order == "oldest" and pages_needed > 0:
-            warmup = await self.page.evaluate(
+            warmup = await self._withdrawal_evaluate(
                 """async ([url, hdrs, body]) => {
+                    const controller = new AbortController();
+                    const timer = setTimeout(() => controller.abort(), 20000);
                     try {
                         const r = await fetch(url, {
                             method: "POST", headers: hdrs,
                             credentials: "include", body: JSON.stringify(body),
+                            signal: controller.signal,
                         });
-                        return {status: r.status, body: await r.text()};
-                    } catch (e) { return {error: e.message}; }
+                        return {status: r.status, final_url: r.url, body: await r.text()};
+                    } catch (e) { return {error: "request_failed"}; }
+                    finally { clearTimeout(timer); }
                 }""",
                 [PAGINATION_URL, SDUI_HEADERS, _build_pag_payload(0)],
             )
@@ -1909,7 +1957,7 @@ class LinkedInActions:
                     status=warmup.get("status"),
                     error=warmup.get("error"),
                 )
-                return await self._withdraw_invitations_dom(count, order=order)
+                raise WithdrawalStopped("LinkedIn pagination failed; no scrolling fallback or automatic retry was attempted.")
             await asyncio.sleep(1.0)
 
         for page_num in range(pages_needed):
@@ -1921,68 +1969,29 @@ class LinkedInActions:
             else:  # oldest
                 start_idx = max(0, dom_total - page_size - (page_num * page_size))
 
-            pag_result = await self.page.evaluate(
+            pag_result = await self._withdrawal_evaluate(
                 """async ([url, hdrs, body]) => {
+                    const controller = new AbortController();
+                    const timer = setTimeout(() => controller.abort(), 20000);
                     try {
                         const r = await fetch(url, {
                             method: "POST", headers: hdrs,
                             credentials: "include", body: JSON.stringify(body),
+                            signal: controller.signal,
                         });
-                        return {status: r.status, body: await r.text()};
-                    } catch (e) { return {error: e.message}; }
+                        return {status: r.status, final_url: r.url, body: await r.text()};
+                    } catch (e) { return {error: "request_failed"}; }
+                    finally { clearTimeout(timer); }
                 }""",
                 [PAGINATION_URL, SDUI_HEADERS, _build_pag_payload(start_idx)],
             )
 
             if pag_result.get("error") or pag_result.get("status") != 200:
-                if page_num == 0:
-                    # SDUI endpoint unavailable on first page — fall back to DOM.
-                    # Cap at 20 to avoid OOM on large invitation lists.
-                    logger.warning(
-                        "action.withdraw_pagination_failed",
-                        status=pag_result.get("status"),
-                        error=pag_result.get("error"),
-                    )
-                    logger.info("action.withdraw_sdui_fallback_dom", count=count)
-                    return await self._withdraw_invitations_dom(count, order=order)
-                else:
-                    logger.warning(
-                        "action.withdraw_pagination_page_failed",
-                        page=page_num, status=pag_result.get("status"),
-                        error=pag_result.get("error"), collected=len(all_pairs),
-                    )
-                    break
+                raise WithdrawalStopped("LinkedIn pagination failed; no scrolling fallback or automatic retry was attempted.")
 
-            rsc_body = pag_result.get("body", "")
-
-            # Extract invitation IDs and profile slugs from RSC body.
-            # Both appear in document order matching the pagination page.
-            # The RSC response packs all IDs in modelStates first, then card
-            # components (with profile /in/ URLs) follow — same count, same order.
-            inv_ids = list(dict.fromkeys(
-                re.findall(r'InvitationUrn\(invitationId=(\d+)\)', rsc_body)
-            ))
-            slugs = list(dict.fromkeys(
-                re.findall(r'"https://www\.linkedin\.com/in/([^/"\\]+)', rsc_body)
-            ))
-
-            if not inv_ids:
-                if page_num == 0:
-                    logger.warning("action.withdraw_no_ids", body_len=len(rsc_body))
-                    return []
-                else:
-                    logger.debug("action.withdraw_page_empty", page=page_num)
-                    break
-
-            # Pair IDs with slugs by position; fall back to no-slug if counts differ.
-            if len(inv_ids) == len(slugs):
-                page_pairs = list(zip(inv_ids, slugs))
-            else:
-                logger.warning(
-                    "action.withdraw_pairing_mismatch",
-                    page=page_num, n_ids=len(inv_ids), n_slugs=len(slugs),
-                )
-                page_pairs = [(iid, "") for iid in inv_ids]
+            page_pairs = invitation_pairs(pag_result.get("body", ""))
+            if len(page_pairs) > page_size:
+                raise WithdrawalStopped("LinkedIn returned an oversized invitation page; withdrawal stopped.")
 
             # For oldest order the RSC returns newest-at-bottom within each page;
             # reverse so the oldest items from this page come first.
@@ -1991,6 +2000,10 @@ class LinkedInActions:
 
             # Deduplicate across pages (RSC responses can overlap near page boundaries).
             for pair in page_pairs:
+                if any(existing[0] == pair[0] and existing[1] != pair[1] for existing in all_pairs):
+                    raise WithdrawalStopped("Invitation identity changed between pages; withdrawal stopped.")
+                if any(existing[1] == pair[1] and existing[0] != pair[0] for existing in all_pairs):
+                    raise WithdrawalStopped("Duplicate recipient appeared between pages; withdrawal stopped.")
                 if pair[0] not in seen_ids:
                     seen_ids.add(pair[0])
                     all_pairs.append(pair)
@@ -1998,7 +2011,7 @@ class LinkedInActions:
             logger.debug(
                 "action.withdraw_page_fetched",
                 page=page_num, start_idx=start_idx,
-                page_ids=len(inv_ids), total_collected=len(all_pairs),
+                page_ids=len(page_pairs), total_collected=len(all_pairs),
             )
 
             # Brief delay between pagination requests to avoid rate-limiting.
@@ -2013,7 +2026,7 @@ class LinkedInActions:
 
         # ── Withdraw each invitation via SDUI server-request ─────────────────
         withdrawn_urls: list[str] = []
-        for inv_id, slug in pairs:
+        for inv_id, profile in pairs:
             wd_payload = {
                 "requestId": "com.linkedin.sdui.requests.mynetwork.addaWithdrawInvitation",
                 "serverRequest": {
@@ -2046,142 +2059,35 @@ class LinkedInActions:
                 },
             }
 
-            wd_result = await self.page.evaluate(
+            if on_attempt:
+                await on_attempt(inv_id, profile)
+            wd_result = await self._withdrawal_evaluate(
                 """async ([url, hdrs, body]) => {
+                    const controller = new AbortController();
+                    const timer = setTimeout(() => controller.abort(), 20000);
                     try {
                         const r = await fetch(url, {
                             method: "POST", headers: hdrs,
                             credentials: "include", body: JSON.stringify(body),
+                            signal: controller.signal,
                         });
-                        return {status: r.status, body: await r.text()};
-                    } catch (e) { return {error: e.message}; }
+                        return {status: r.status, final_url: r.url, body: await r.text()};
+                    } catch (e) { return {error: "request_failed"}; }
+                    finally { clearTimeout(timer); }
                 }""",
                 [WITHDRAW_URL, SDUI_HEADERS, wd_payload],
             )
 
-            status = wd_result.get("status")
-            err = wd_result.get("error")
-            profile_url = f"https://www.linkedin.com/in/{slug}/" if slug else ""
-
-            if err:
-                logger.warning("action.withdraw_api_error", inv_id=inv_id, error=err)
-            elif status == 200:
-                withdrawn_urls.append(profile_url)
-                logger.info("action.invitation_withdrawn", inv_id=inv_id, slug=slug, order=order)
-            else:
-                body_snip = (wd_result.get("body") or "")[:200]
-                logger.warning(
-                    "action.withdraw_api_fail",
-                    inv_id=inv_id, status=status, body=body_snip,
-                )
-
-            await self.delay.micro_delay(1.5, 2.5)
-
-        return withdrawn_urls
-
-    async def _withdraw_invitations_dom(
-        self,
-        count: int,
-        order: str = "oldest",
-    ) -> list:
-        """
-        DOM-scroll fallback for withdraw_invitations. Used only when the SDUI
-        pagination endpoint is unavailable.
-
-        Assumes the caller has already navigated to the invitation manager page.
-        """
-        # For oldest order, scroll to load cards so the oldest (bottom) are visible.
-        if order == "oldest":
-            prev_count = 0
-            for _ in range(60):
-                await self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                await self.delay.micro_delay(1.0, 2.0)
-                cur_count = await self.page.locator(selectors.INVITATION_WITHDRAW_ANCHOR).count()
-                await self.page.evaluate("""
-                () => {
-                    const btn = Array.from(document.querySelectorAll('button'))
-                        .find(b => b.textContent.includes('Show more') || b.textContent.includes('Load more'));
-                    if (btn) btn.click();
-                }
-                """)
-                if cur_count == prev_count:
-                    logger.debug("action.withdraw_dom_scroll_stale", count=cur_count, scrolls=_)
-                    break
-                prev_count = cur_count
-
-        total = await self.page.locator(selectors.INVITATION_WITHDRAW_ANCHOR).count()
-        if total == 0:
-            logger.warning("action.withdraw_dom_no_anchors")
-            return []
-
-        withdrawn_urls: list[str] = []
-
-        for _ in range(count):
-            if len(withdrawn_urls) >= count:
-                break
-
-            cur_total = await self.page.locator(selectors.INVITATION_WITHDRAW_ANCHOR).count()
-            if cur_total == 0:
-                break
-
-            i = cur_total - 1 if order == "oldest" else 0
-
-            anchor = self.page.locator(selectors.INVITATION_WITHDRAW_ANCHOR).nth(i)
-            try:
-                await anchor.scroll_into_view_if_needed(timeout=8000)
-            except Exception:
-                if order == "oldest" and cur_total >= 2:
-                    i -= 1
-                    anchor = self.page.locator(selectors.INVITATION_WITHDRAW_ANCHOR).nth(i)
-                    try:
-                        await anchor.scroll_into_view_if_needed(timeout=8000)
-                    except Exception:
-                        logger.warning("action.withdraw_dom_scroll_failed", index=i)
-                        break
-                else:
-                    logger.warning("action.withdraw_dom_scroll_failed", index=i)
-                    break
-            await self.delay.micro_delay(0.3, 0.8)
-
-            href = await self.page.evaluate("""
-            (idx) => {
-                const anchors = Array.from(document.querySelectorAll('a[aria-label^="Withdraw invitation"]'));
-                if (idx >= anchors.length) return null;
-                let el = anchors[idx];
-                for (let j = 0; j < 10; j++) {
-                    el = el.parentElement;
-                    if (!el) break;
-                    const link = el.querySelector('a[href*="/in/"]');
-                    if (link) return link.href;
-                }
-                return null;
-            }
-            """, i)
-
-            try:
-                await anchor.click(timeout=5000)
-            except Exception as e:
-                logger.warning("action.withdraw_dom_anchor_click_failed", index=i, error=str(e))
-                continue
-
-            await self.delay.micro_delay(1.0, 1.5)
-
-            confirmed = await self.page.evaluate("""
-            () => {
-                const btn = Array.from(document.querySelectorAll('button'))
-                    .find(b => b.innerText.trim() === 'Withdraw' && b.offsetParent !== null);
-                if (btn) { btn.click(); return true; }
-                return false;
-            }
-            """)
-
-            if confirmed:
-                await self.delay.micro_delay(1.0, 2.0)
-                if href:
-                    withdrawn_urls.append(href)
-                logger.info("action.withdraw_dom_withdrawn", url=href, order=order, index=i)
-            else:
-                logger.warning("action.withdraw_dom_confirm_not_found", index=i, href=href)
+            if wd_result.get("error") or wd_result.get("status") != 200:
+                raise WithdrawalStopped("LinkedIn did not confirm the withdrawal; review the saved attempt before retrying.")
+            if not withdrawal_receipt(wd_result.get("body", ""), inv_id):
+                raise WithdrawalStopped("LinkedIn returned an unverified withdrawal receipt; review the saved attempt before retrying.")
+            withdrawn_urls.append(profile)
+            if on_withdrawn:
+                await on_withdrawn(profile)
+            logger.info("action.invitation_withdrawn", inv_id=inv_id, order=order)
+            if len(withdrawn_urls) < len(pairs):
+                await self.delay.micro_delay(8.0, 12.0)
 
         return withdrawn_urls
 

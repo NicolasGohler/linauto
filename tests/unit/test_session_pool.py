@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from releasi.linkedin import pool as pool_module
-from releasi.linkedin.pool import AccountSessionChangedError, BrowserPool
+from releasi.linkedin.pool import AccountSessionChangedError, BrowserPool, BrowserQuarantinedError
 
 
 @pytest.fixture
@@ -42,6 +42,76 @@ async def test_new_slot_is_not_authenticated(account, browsers):
     await pool.shutdown()
 
 
+async def test_withdrawal_cleanup_releases_only_after_closure(account, browsers):
+    pool = BrowserPool()
+    context = await pool.acquire(account)
+    page = await context.new_page()
+    closing = asyncio.Event()
+    finish = asyncio.Event()
+
+    async def close():
+        closing.set()
+        await finish.wait()
+
+    page.close.side_effect = close
+    task = asyncio.create_task(pool.close_owned_page(account.id, page))
+    await closing.wait()
+    assert pool.is_busy(account.id)
+    waiter = asyncio.create_task(pool.acquire(account))
+    await asyncio.sleep(0)
+    assert not waiter.done()
+    finish.set()
+    await task
+    await waiter
+    pool.release(account.id)
+
+
+async def test_failed_page_close_evicts_before_reuse(account, browsers):
+    pool = BrowserPool()
+    context = await pool.acquire(account)
+    page = await context.new_page()
+    page.close.side_effect = RuntimeError("page hung")
+    await pool.close_owned_page(account.id, page)
+    browsers[0].force_close.assert_awaited_once_with(strict=True)
+    assert not pool.has_slot(account.id) and not pool.is_busy(account.id)
+
+
+async def test_unverified_shutdown_quarantines_existing_waiter_and_external_browser(account, browsers):
+    pool = BrowserPool()
+    context = await pool.acquire(account)
+    page = await context.new_page()
+    page.close.side_effect = RuntimeError("page hung")
+    browsers[0].force_close.side_effect = RuntimeError("browser still alive")
+    waiter = asyncio.create_task(pool.acquire(account))
+    await asyncio.sleep(0)
+    with pytest.raises(BrowserQuarantinedError):
+        await pool.close_owned_page(account.id, page)
+    with pytest.raises(BrowserQuarantinedError):
+        await waiter
+    with pytest.raises(BrowserQuarantinedError):
+        await pool.reserve_external(account.id)
+    assert pool.is_busy(account.id)
+    assert len(browsers) == 1
+
+
+async def test_cleanup_deadlines_quarantine_instead_of_hanging(account, browsers, monkeypatch):
+    monkeypatch.setattr(pool_module, "_PAGE_CLOSE_TIMEOUT", 0.01)
+    monkeypatch.setattr(pool_module, "_BROWSER_CLOSE_TIMEOUT", 0.01)
+    pool = BrowserPool()
+    context = await pool.acquire(account)
+    page = await context.new_page()
+
+    async def hang(*args, **kwargs):
+        await asyncio.Event().wait()
+
+    page.close.side_effect = hang
+    browsers[0].force_close.side_effect = hang
+    with pytest.raises(BrowserQuarantinedError):
+        await asyncio.wait_for(pool.close_owned_page(account.id, page), timeout=1)
+    assert pool.is_busy(account.id)
+    assert not pool._account_lock(account.id).locked()
+
+
 async def test_process_check_does_not_refresh_authentication(account, browsers):
     pool = BrowserPool()
     await pool.acquire(account)
@@ -49,7 +119,7 @@ async def test_process_check_does_not_refresh_authentication(account, browsers):
     slot = pool._slots[account.id]
     slot.last_validated -= 3600
     authenticated_at = slot.last_validated
-    slot.last_process_checked = 0
+    slot.last_process_checked = time.monotonic() - pool_module._PROCESS_CHECK_COOLDOWN - 1
     pool.release(account.id)
 
     await pool.acquire(account)
@@ -65,7 +135,7 @@ async def test_recreated_process_requires_new_authentication(account, browsers):
     pool = BrowserPool()
     await pool.acquire(account)
     pool.confirm_session(account.id)
-    pool._slots[account.id].last_process_checked = 0
+    pool._slots[account.id].last_process_checked = time.monotonic() - pool_module._PROCESS_CHECK_COOLDOWN - 1
     browsers[0].launch.return_value.new_page.side_effect = RuntimeError("Browser stopped")
     pool.release(account.id)
 
@@ -81,11 +151,11 @@ async def test_recreated_process_requires_new_authentication(account, browsers):
 async def test_cancelled_process_check_releases_account_lock(account, browsers):
     pool = BrowserPool()
     await pool.acquire(account)
-    pool._slots[account.id].last_process_checked = 0
+    pool._slots[account.id].last_process_checked = time.monotonic() - pool_module._PROCESS_CHECK_COOLDOWN - 1
     pool.release(account.id)
     checking = asyncio.Event()
 
-    async def block():
+    async def block(**kwargs):
         checking.set()
         await asyncio.Event().wait()
 
@@ -129,6 +199,42 @@ async def test_cancelled_launch_closes_partial_browser_and_releases_lock(account
         assert not pool.has_slot(account.id)
     finally:
         pool_module.LinkedInBrowser = factory
+
+
+async def test_hung_launch_cleanup_is_bounded_and_quarantines(account, browsers, monkeypatch):
+    monkeypatch.setattr(pool_module, "_BROWSER_CLOSE_TIMEOUT", 0.01)
+    pool = BrowserPool()
+    factory = pool_module.LinkedInBrowser
+
+    async def hang(*args, **kwargs):
+        await asyncio.Event().wait()
+
+    def failing_factory(**kwargs):
+        browser = factory(**kwargs)
+        browser.launch.side_effect = RuntimeError("launch failed")
+        browser.force_close.side_effect = hang
+        return browser
+
+    monkeypatch.setattr(pool_module, "LinkedInBrowser", failing_factory)
+    with pytest.raises(RuntimeError, match="launch failed"):
+        await asyncio.wait_for(pool.acquire(account), timeout=1)
+    assert pool.is_busy(account.id)
+    assert not pool._global_lock.locked() and not pool._account_lock(account.id).locked()
+
+
+async def test_hung_eviction_is_bounded_and_quarantines(account, browsers, monkeypatch):
+    monkeypatch.setattr(pool_module, "_BROWSER_CLOSE_TIMEOUT", 0.01)
+    pool = BrowserPool()
+    await pool.acquire(account)
+    pool.release(account.id)
+
+    async def hang(**kwargs):
+        await asyncio.Event().wait()
+
+    browsers[0].force_close.side_effect = hang
+    with pytest.raises(BrowserQuarantinedError):
+        await asyncio.wait_for(pool.evict(account.id), timeout=1)
+    assert pool.is_busy(account.id) and pool.has_slot(account.id)
 
 
 async def test_external_lease_waits_for_work_and_blocks_new_acquisitions(account, browsers):
@@ -185,7 +291,7 @@ async def test_cancelled_eviction_finishes_close_before_releasing_lock(account, 
     closing = asyncio.Event()
     closed = asyncio.Event()
 
-    async def block():
+    async def block(**kwargs):
         closing.set()
         await closed.wait()
 

@@ -2221,17 +2221,19 @@ class Repository:
         await self.session.refresh(lead)
         return lead
 
-    async def mark_lead_withdrawn_by_slug(self, slug: str) -> bool:
+    async def mark_lead_withdrawn_by_slug(self, slug: str, *, account_id: str) -> bool:
         """
-        Mark any CONNECTION_REQUESTED assignment whose lead URL contains slug as WITHDRAWN.
+        Mark requested assignments for this exact profile on this account only.
         Returns True if at least one assignment was updated.
 
         Phase 3b: writes to CampaignLeadAssignment directly.
         """
-        # Find matching lead IDs
+        canonical = normalize_linkedin_url("https://www.linkedin.com/in/" + slug)
+        if not canonical:
+            return False
         lead_result = await self.session.execute(
             select(Lead.id).where(
-                Lead.linkedin_url.contains(slug),
+                func.lower(func.rtrim(Lead.linkedin_url, "/")) == canonical,
             )
         )
         lead_ids = [r[0] for r in lead_result.all()]
@@ -2241,6 +2243,9 @@ class Repository:
             update(CampaignLeadAssignment)
             .where(
                 CampaignLeadAssignment.lead_id.in_(lead_ids),
+                CampaignLeadAssignment.campaign_id.in_(
+                    select(Campaign.id).where(Campaign.account_id == account_id)
+                ),
                 CampaignLeadAssignment.status == LeadStatus.CONNECTION_REQUESTED.value,
             )
             .values(status=LeadStatus.WITHDRAWN.value)

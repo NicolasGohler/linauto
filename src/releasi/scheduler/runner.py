@@ -1212,11 +1212,15 @@ async def dispatch():
                     account=account.name,
                     hint="stuck slot lock — will retry next cycle",
                 )
+                from releasi.campaign.withdrawal import report_browser_wait
+                await report_browser_wait(account)
                 continue
             except Exception as e:
                 logger.error("dispatch.pool_acquire_failed", account=account.name, error=str(e))
                 continue
 
+            from releasi.campaign.withdrawal import clear_browser_wait
+            clear_browser_wait(account.id)
             try:
                 # Pre-dispatch browser session check: navigate to feed once
                 # using the real Playwright browser before touching any leads.
@@ -2143,129 +2147,74 @@ async def dispatch_broadcasts():
 
 
 async def withdraw_invitations_sweep():
-    """
-    Interval-based auto-withdraw. Runs hourly.
-
-    Per-account: fires when withdraw_threshold is set and auto_withdraw_interval_days
-    have elapsed since auto_withdraw_last_run (or it has never run).
-
-    Logic:
-      1. Get live pending invitation count from LinkedIn.
-      2. Cache it on the account row.
-      3. If count > threshold: withdraw oldest invitations until count reaches a
-         random target within [threshold*0.95, threshold], hard-capped at 200/session.
-      4. Stamp auto_withdraw_last_run regardless of whether withdrawal was needed,
-         so the interval resets from today.
-    """
-    import re as _re_wd
-    from releasi.linkedin.actions import LinkedInActions
+    """Run configured auto-withdrawal through the same bounded, durable lifecycle."""
+    from releasi.campaign.withdrawal import count_invitations, run_withdrawal_job, notify_withdrawal_issue
+    from releasi.linkedin.withdrawal_jobs import get_withdrawal_job_store
+    from releasi.linkedin.withdrawal_safety import MAX_WITHDRAWALS, WithdrawalStopped
+    from releasi.linkedin.pool import BrowserQuarantinedError
 
     repo, session = await _get_repo()
+    store = get_withdrawal_job_store()
     try:
         accounts = await repo.list_active_accounts()
         now = datetime.utcnow()
-
         for account in accounts:
-            # Skip if auto-withdraw is not configured
             if account.withdraw_threshold is None:
                 continue
-
-            # Skip paused accounts
             if account.paused_until and not is_cooldown_expired(account.paused_until):
                 continue
-
-            # Check interval: skip if not enough days have elapsed
             interval_days = account.auto_withdraw_interval_days or 30
             if account.auto_withdraw_last_run is not None:
-                days_elapsed = (now - account.auto_withdraw_last_run).total_seconds() / 86400
-                if days_elapsed < interval_days:
+                if (now - account.auto_withdraw_last_run).total_seconds() < interval_days * 86400:
                     continue
-
-            threshold = account.withdraw_threshold
-            pool = get_browser_pool()
-            pool_context = None
-            try:
-                pool_context = await pool.acquire(account)
-            except Exception as e:
-                logger.warning("withdraw_sweep.pool_acquire_failed", account=account.name, error=str(e))
+            previous = store.read(account.id)
+            if previous.get("status") in ("running", "error") or previous.get("needs_review"):
                 continue
-
+            pool = get_browser_pool()
+            if pool.is_busy(account.id):
+                continue
             try:
-                # Get live invitation count
-                count_page = await pool_context.new_page()
-                try:
-                    actions = LinkedInActions(count_page)
-                    live_count = await actions.get_pending_invitation_count()
-                finally:
-                    await count_page.close()
-
+                job_id = store.claim(account.id, MAX_WITHDRAWALS, "oldest", automatic=True)
+            except WithdrawalStopped:
+                continue
+            try:
+                live_count = await count_invitations(account, pool=pool)
                 if live_count < 0:
-                    logger.warning("withdraw_sweep.count_failed", account=account.name)
-                    continue
-
-                # Cache count and stamp last_run regardless of whether we withdraw
-                await repo.update_account(account, pending_invitations_count=live_count, auto_withdraw_last_run=now)
-
-                if live_count <= threshold:
-                    logger.info(
-                        "withdraw_sweep.below_threshold",
-                        account=account.name,
-                        count=live_count,
-                        threshold=threshold,
-                    )
-                    continue
-
-                # Target = random in [threshold*0.95, threshold] (organic, avoids exact number)
+                    raise WithdrawalStopped("LinkedIn did not confirm the invitation count; no withdrawal was attempted.")
+                await repo.update_account(
+                    account, pending_invitations_count=live_count, auto_withdraw_last_run=now,
+                )
+                threshold = account.withdraw_threshold
                 target = random.randint(int(threshold * 0.95), threshold)
-                to_withdraw = min(live_count - target, 200)
-
-                if to_withdraw <= 0:
+                to_withdraw = min(max(0, live_count - target), MAX_WITHDRAWALS)
+                if not to_withdraw:
+                    store.update(account.id, status="done", count=0)
                     continue
-
-                logger.info(
-                    "withdraw_sweep.starting",
-                    account=account.name,
-                    live_count=live_count,
-                    threshold=threshold,
-                    target=target,
-                    to_withdraw=to_withdraw,
+                store.update(account.id, count=to_withdraw)
+                result = await run_withdrawal_job(account.id, job_id, to_withdraw, "oldest")
+                await repo.update_account(
+                    account, pending_invitations_count=max(0, live_count - len(result["withdrawn"])),
                 )
-
-                wd_page = await pool_context.new_page()
-                try:
-                    wd_actions = LinkedInActions(wd_page)
-                    withdrawn_urls = await wd_actions.withdraw_invitations(to_withdraw, order="oldest")
-                finally:
-                    await wd_page.close()
-
-                # Sync withdrawn leads to DB
-                db_updated = 0
-                for url in withdrawn_urls:
-                    m = _re_wd.search(r'/in/([^/?#\s]+)', url)
-                    if not m:
-                        continue
-                    slug = m.group(1).rstrip('/')
-                    updated = await repo.mark_lead_withdrawn_by_slug(slug)
-                    if updated:
-                        db_updated += 1
-
-                # Update cached count with post-withdrawal estimate
-                new_count = max(0, live_count - len(withdrawn_urls))
-                await repo.update_account(account, pending_invitations_count=new_count)
-
-                logger.info(
-                    "withdraw_sweep.done",
-                    account=account.name,
-                    withdrawn=len(withdrawn_urls),
-                    db_updated=db_updated,
-                    new_count=new_count,
+                logger.info("withdraw_sweep.finished", account=account.name,
+                            status=result["status"], withdrawn=len(result["withdrawn"]))
+            except asyncio.CancelledError:
+                state = store.read(account.id)
+                if state.get("job_id") == job_id:
+                    store.update(account.id, status="error", needs_review=bool(state.get("in_flight")),
+                                 error="Automatic withdrawal interrupted; no automatic retry will run.")
+                raise
+            except Exception as exc:
+                state = store.read(account.id)
+                if state.get("job_id") == job_id:
+                    store.update(account.id, status="error",
+                                 needs_review=bool(state.get("in_flight") or isinstance(exc, BrowserQuarantinedError)),
+                                 error="Automatic withdrawal stopped; manual review is required before retrying.")
+                await notify_withdrawal_issue(
+                    account.name, f"Automatic withdrawal stopped for {account.name}. "
+                    f"Job: {job_id}. Saved progress retained; automatic retries are held.",
                 )
-
             finally:
-                await pool.release_idle(account.id)
-
-    except Exception as e:
-        logger.error("withdraw_sweep.failed", error=str(e))
+                store.release(account.id, job_id)
     finally:
         await session.close()
 

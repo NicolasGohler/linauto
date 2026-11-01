@@ -217,13 +217,13 @@ Multi-layer detection catches 1st-degree connections before the connect flow is 
 |---------|--------|
 | Scheduler startup | `check_cookie_health()` once — catches pre-deploy expiry |
 | Login "Save" clicked | Background `check_cookie_health()` — confirms proxy route healthy |
-| Pre-dispatch browser feed ping fails (redirect) | Mark `cookie_expired` immediately, before any lead is attempted |
+| Pre-dispatch browser feed ping fails (redirect) | Try `_attempt_li_rm_reauth` first → if li_rm valid, recover to `active` silently; only if li_rm also dead → mark `cookie_expired` |
 | Pre-dispatch browser feed ping times out | Skip cycle (proxy/network issue), do NOT mark `cookie_expired` |
 | 3 consecutive session errors (non-network) | Mark `cookie_expired` as last resort |
 | 3 consecutive network/timeout errors | Log `proxy_connectivity_issues`, skip cycle, do NOT mark `cookie_expired` |
 | Morning warm-up detects login redirect | Mark `cookie_expired` |
-| Acceptance checker connections page → login redirect | Mark `cookie_expired` |
-| `check_cookie_health` passes for expired account | Auto-recover to `active` |
+| Acceptance checker connections page → login redirect | Try `_attempt_li_rm_reauth` first → if li_rm valid, recover to `active` silently; only if li_rm also dead → mark `cookie_expired` |
+| `check_cookie_health` passes for expired account | No-op — `check_cookie_health` only queries ACTIVE accounts and never reactivates; recovery to `active` happens via li_rm reauth (above) or manual noVNC re-login |
 
 **What NOT to do**: Never send bare HTTP requests with only `li_at` from the server IP. LinkedIn treats this as a stolen-cookie test and invalidates the session.
 

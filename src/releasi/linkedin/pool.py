@@ -25,10 +25,16 @@ logger = structlog.get_logger()
 _PROCESS_CHECK_COOLDOWN = 30 * 60  # 30 minutes
 # Publicly imported by dispatchers to decide when to validate authentication.
 _VALIDATION_COOLDOWN = 30 * 60
+_PAGE_CLOSE_TIMEOUT = 10
+_BROWSER_CLOSE_TIMEOUT = 15
 
 
 class AccountSessionChangedError(RuntimeError):
     """An external session completed while waiting; reload the account first."""
+
+
+class BrowserQuarantinedError(RuntimeError):
+    """Closure could not be verified; do not reuse this account's profile."""
 
 
 @dataclass
@@ -100,6 +106,14 @@ class BrowserPool:
         self._pool_holders = set()
         self._external_leases: Dict[str, ExternalBrowserLease] = {}
         self._session_generations: Dict[str, int] = {}
+        self._quarantined: set = set()
+
+    def _assert_available(self, account_id: str) -> None:
+        if account_id in self._quarantined:
+            raise BrowserQuarantinedError("Account browser requires operator recovery before reuse")
+
+    def quarantine(self, account_id: str) -> None:
+        self._quarantined.add(account_id)
 
     def _account_lock(self, account_id: str) -> asyncio.Lock:
         # Locks outlive slots so eviction cannot strand waiters on an old lock.
@@ -142,9 +156,11 @@ class BrowserPool:
         the supplied account credentials may have become stale while waiting.
         """
         lock = self._account_lock(account.id)
+        self._assert_available(account.id)
         generation = self._session_generations.get(account.id, 0)
         await lock.acquire()
         try:
+            self._assert_available(account.id)
             if generation != self._session_generations.get(account.id, 0):
                 raise AccountSessionChangedError("Account session changed while waiting; reload account before retrying")
             async with self._global_lock:
@@ -176,8 +192,10 @@ class BrowserPool:
         Callers must close their browser before releasing the returned lease.
         """
         lock = self._account_lock(account_id)
+        self._assert_available(account_id)
         await lock.acquire()
         try:
+            self._assert_available(account_id)
             await self._evict_locked(account_id)
             lease = ExternalBrowserLease(self, account_id)
             self._external_leases[account_id] = lease
@@ -207,6 +225,40 @@ class BrowserPool:
         finally:
             self.release(account_id)
 
+    async def close_owned_page(self, account_id: str, page) -> None:
+        """Bound withdrawal cleanup; never hand an uncertain browser to a waiter."""
+        if account_id not in self._pool_holders:
+            return
+        slot = self._slots.get(account_id)
+        try:
+            if page is None:
+                raise RuntimeError("Page creation did not complete")
+            await asyncio.wait_for(page.close(), timeout=_PAGE_CLOSE_TIMEOUT)
+            if slot and slot.context.pages:
+                await asyncio.wait_for(
+                    slot.context.pages[0].goto("about:blank", timeout=5000),
+                    timeout=_PAGE_CLOSE_TIMEOUT,
+                )
+        except BaseException as original:
+            # Block current waiters as well as new callers before yielding.
+            self._quarantined.add(account_id)
+            try:
+                if slot is None:
+                    raise RuntimeError("Missing owned browser slot")
+                await asyncio.wait_for(slot.browser.force_close(strict=True), timeout=_BROWSER_CLOSE_TIMEOUT)
+            except BaseException as exc:
+                logger.error("pool.browser_quarantined", account_id=account_id)
+                raise BrowserQuarantinedError(
+                    "Browser closure could not be verified; operator recovery is required"
+                ) from exc
+            else:
+                self._slots.pop(account_id, None)
+                self._quarantined.discard(account_id)
+                if isinstance(original, asyncio.CancelledError):
+                    raise
+        finally:
+            self.release(account_id)
+
     def release(self, account_id: str) -> None:
         """Release pooled ownership without releasing an external reservation."""
         if account_id not in self._pool_holders:
@@ -222,7 +274,7 @@ class BrowserPool:
     def is_busy(self, account_id: str) -> bool:
         """Check if an account's browser is currently in use."""
         lock = self._account_locks.get(account_id)
-        return lock.locked() if lock else False
+        return account_id in self._quarantined or (lock.locked() if lock else False)
 
     def has_slot(self, account_id: str) -> bool:
         """Return True if a live browser slot already exists for the account.
@@ -264,12 +316,20 @@ class BrowserPool:
         if slot:
             # Finish closing even if the reserving task is cancelled, before
             # another task can acquire the same profile and open a browser.
-            closing = asyncio.create_task(slot.browser.force_close())
+            closing = asyncio.create_task(asyncio.wait_for(
+                slot.browser.force_close(strict=True), timeout=_BROWSER_CLOSE_TIMEOUT,
+            ))
             try:
                 await asyncio.shield(closing)
             except asyncio.CancelledError:
-                await closing
+                try:
+                    await closing
+                except BaseException:
+                    self.quarantine(account_id)
                 raise
+            except Exception as exc:
+                self.quarantine(account_id)
+                raise BrowserQuarantinedError("Browser eviction could not be verified; operator recovery is required") from exc
             finally:
                 if closing.done() and not closing.cancelled() and closing.exception() is None:
                     self._slots.pop(account_id, None)
@@ -299,7 +359,10 @@ class BrowserPool:
                 cookies_json=getattr(account, "cookies_json", None),
             )
         except BaseException:
-            await browser.force_close()
+            try:
+                await asyncio.wait_for(browser.force_close(strict=True), timeout=_BROWSER_CLOSE_TIMEOUT)
+            except BaseException:
+                self.quarantine(account.id)
             raise
         # Launching a browser does not prove authentication. The caller must
         # validate an authenticated page before calling confirm_session().

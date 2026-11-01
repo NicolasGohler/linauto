@@ -1050,135 +1050,76 @@ async def account_stats(
 
 # ── Invitation withdrawal ─────────────────────────────────────────────────────
 
-import uuid as _uuid
-
-# In-memory task store: task_id → result dict. Lives for the container lifetime.
-_withdrawal_tasks: dict = {}
-
-
 @router.post("/accounts/{account_id}/invitations/count")
-async def get_invitation_count(
-    account_id: str,
-    repo: Repository = Depends(get_repo),
-):
-    """Navigate to LinkedIn invitation manager and return the People count. ~5-10s."""
+async def get_invitation_count(account_id: str, repo: Repository = Depends(get_repo)):
+    from releasi.campaign.withdrawal import count_invitations
     account = await repo.get_account(account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
-
-    from releasi.linkedin.pool import get_browser_pool
-    from releasi.linkedin.actions import LinkedInActions
-
-    pool = get_browser_pool()
-    if pool.is_busy(account.id):
-        raise HTTPException(status_code=409, detail="Account browser is busy (dispatcher running)")
+    if account.status != "active" or account.archived:
+        raise HTTPException(status_code=409, detail="Account is not active")
     try:
-        pool_context = await pool.acquire(account)
-    except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Browser pool unavailable: {e}")
-
-    try:
-        page = await pool_context.new_page()
-        try:
-            actions = LinkedInActions(page)
-            count = await actions.get_pending_invitation_count()
-        finally:
-            await page.close()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        await pool.release_idle(account.id)
-
-    if count == -1:
+        count = await count_invitations(account)
+    except Exception:
+        raise HTTPException(status_code=503, detail="Invitation count unavailable; check account browser health")
+    if count < 0:
         raise HTTPException(status_code=503, detail="Session invalid or navigation failed")
-
     return {"count": count, "account_id": account_id}
 
 
 @router.post("/accounts/{account_id}/invitations/withdraw")
 async def start_withdrawal(
-    account_id: str,
-    body: dict,
-    background_tasks: BackgroundTasks,
+    account_id: str, body: dict, background_tasks: BackgroundTasks,
     repo: Repository = Depends(get_repo),
 ):
-    """
-    Start a background withdrawal job. Returns task_id immediately.
-    body: { "count": int (1-100), "order": "oldest" | "newest" }
-    """
+    """Queue at most 100 withdrawals; never retry or load a scrolling backlog."""
+    from releasi.campaign.withdrawal import run_withdrawal_job
+    from releasi.linkedin.pool import get_browser_pool
+    from releasi.linkedin.withdrawal_jobs import get_withdrawal_job_store
+    from releasi.linkedin.withdrawal_safety import WithdrawalStopped
     account = await repo.get_account(account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
-
-    count = int(body.get("count", 10))
+    if account.status != "active" or account.archived:
+        raise HTTPException(status_code=409, detail="Account is not active")
+    raw_count = body.get("count", 10)
+    try:
+        count = int(raw_count)
+        if isinstance(raw_count, bool) or str(raw_count) != str(count):
+            raise ValueError()
+    except (ValueError, TypeError, OverflowError):
+        raise HTTPException(status_code=422, detail="count must be an integer between 1 and 100")
     order = body.get("order", "oldest")
-    if count < 1 or count > 100:
-        raise HTTPException(status_code=422, detail="count must be between 1 and 100")
-    if order not in ("oldest", "newest"):
-        raise HTTPException(status_code=422, detail="order must be 'oldest' or 'newest'")
-
-    from releasi.linkedin.pool import get_browser_pool as _get_pool
-    if _get_pool().is_busy(account.id):
-        raise HTTPException(status_code=409, detail="Account browser is busy (dispatcher running)")
-
-    task_id = f"wd-{_uuid.uuid4().hex[:8]}"
-    _withdrawal_tasks[task_id] = {"status": "running", "withdrawn": [], "db_updated": 0, "error": None}
-
-    async def _run(tid: str, acct, n: int, ord_: str):
-        from releasi.linkedin.pool import get_browser_pool
-        from releasi.linkedin.actions import LinkedInActions
-        import re as re_
-        import logging as _logging
-        _log = _logging.getLogger(__name__)
-
-        urls: list = []
-        db_updated = 0
-        error_msg = None
-        try:
-            pool = get_browser_pool()
-            pool_context = await pool.acquire(acct)
-            try:
-                page = await pool_context.new_page()
-                try:
-                    actions = LinkedInActions(page)
-                    urls = await actions.withdraw_invitations(n, order=ord_)
-                finally:
-                    await page.close()
-            finally:
-                await pool.release_idle(acct.id)
-
-            # Sync withdrawn URLs to DB leads
-            for url in urls:
-                m = re_.search(r'/in/([^/?#\s]+)', url)
-                if not m:
-                    continue
-                slug = m.group(1).rstrip('/')
-                updated = await repo.mark_lead_withdrawn_by_slug(slug)
-                if updated:
-                    db_updated += 1
-
-        except Exception as e:
-            _log.error("withdrawal_task.error tid=%s error=%s", tid, e, exc_info=True)
-            error_msg = str(e)
-
-        _withdrawal_tasks[tid] = {
-            "status": "error" if error_msg else "done",
-            "withdrawn": urls,
-            "db_updated": db_updated,
-            "error": error_msg,
-        }
-
-    background_tasks.add_task(_run, task_id, account, count, order)
+    if not 1 <= count <= 100 or order not in ("oldest", "newest"):
+        raise HTTPException(status_code=422, detail="count must be 1-100 and order oldest or newest")
+    if get_browser_pool().is_busy(account_id):
+        raise HTTPException(status_code=409, detail="Account browser is busy or awaiting recovery")
+    store = get_withdrawal_job_store()
+    try:
+        task_id = store.claim(account_id, count, order)
+    except WithdrawalStopped as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    try:
+        background_tasks.add_task(run_withdrawal_job, account_id, task_id, count, order)
+    except Exception:
+        store.update(account_id, status="error", error="Could not queue withdrawal; nothing was started.")
+        store.release(account_id, task_id)
+        raise
     return {"task_id": task_id}
 
 
 @router.get("/accounts/{account_id}/invitations/withdraw/{task_id}")
-async def get_withdrawal_status(account_id: str, task_id: str):
-    """Poll for withdrawal task status."""
-    task = _withdrawal_tasks.get(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return task
+async def get_withdrawal_status(account_id: str, task_id: str, repo: Repository = Depends(get_repo)):
+    from releasi.linkedin.withdrawal_jobs import get_withdrawal_job_store
+    if not await repo.get_account(account_id):
+        raise HTTPException(status_code=404, detail="Account not found")
+    try:
+        state = get_withdrawal_job_store().read_job(account_id, task_id)
+    except ValueError:
+        state = {}
+    if not state or state.get("job_id") != task_id:
+        raise HTTPException(status_code=404, detail="Withdrawal task not found for this account")
+    return state
 
 
 @router.post("/accounts/{account_id}/recover-stuck-leads")

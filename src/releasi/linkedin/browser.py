@@ -631,18 +631,27 @@ class LinkedInBrowser:
             self._playwright = None
         logger.info("browser.closed")
 
-    async def force_close(self):
+    async def force_close(self, *, strict: bool = False):
         """Unconditional shutdown, ignoring pool_managed flag. Used by the pool itself."""
+        errors = []
         if self._context:
             try:
                 await self._context.close()
             except Exception:
-                pass
-            self._context = None
+                errors.append("context")
+            else:
+                self._context = None
+            if not strict:
+                self._context = None
         if self._playwright:
             try:
                 await self._playwright.stop()
             except Exception:
-                pass
-            self._playwright = None
+                errors.append("driver")
+            else:
+                self._playwright = None
+            if not strict:
+                self._playwright = None
+        if strict and errors:
+            raise RuntimeError("Browser shutdown could not be verified")
         logger.info("browser.force_closed")

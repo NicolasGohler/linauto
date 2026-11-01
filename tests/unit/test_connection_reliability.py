@@ -289,3 +289,169 @@ def test_captcha_pauses_account_without_claiming_expired_cookie():
     intent = classify_connection_result({"fatal": True, "captcha": True}, 0, 0, "test", "test")
     assert intent.account_action == AccountAction.PAUSE
     assert intent.stop_account
+
+
+# ---------------------------------------------------------------------------
+# _attempt_li_rm_reauth — silent re-mint of li_at from the "remember me" token.
+# This is the primary auto-recovery path: it fires *before* marking an account
+# cookie_expired so a routine li_at expiry never requires manual re-login.
+# ---------------------------------------------------------------------------
+
+def _make_reauth_mocks(*, li_rm=None, feed_success=True, feed_valid=True,
+                       account_status=None, li_rm_in_browser=False):
+    """Build the minimal collaborator fakes needed by _attempt_li_rm_reauth."""
+    from releasi.db.models import AccountStatus
+    status = account_status if account_status is not None else AccountStatus.ACTIVE
+    account = SimpleNamespace(
+        id="acct-1",
+        name="Test",
+        li_rm_cookie=li_rm,
+        status=status,
+    )
+    page = SimpleNamespace(close=AsyncMock())
+    existing_cookies = [{"name": "li_rm", "value": li_rm}] if li_rm_in_browser and li_rm else []
+    context = SimpleNamespace(
+        cookies=AsyncMock(return_value=existing_cookies),
+        add_cookies=AsyncMock(),
+        new_page=AsyncMock(return_value=page),
+    )
+    repo = SimpleNamespace(
+        update_account=AsyncMock(),
+        log_session_event=AsyncMock(),
+    )
+    from releasi.linkedin.navigator import NavigationResult
+    nav_result = NavigationResult(success=feed_success, url="https://www.linkedin.com/feed/", session_valid=feed_valid)
+    return account, context, repo, page, nav_result
+
+
+@pytest.mark.asyncio
+async def test_reauth_skipped_when_no_li_rm(monkeypatch):
+    """No li_rm cookie → return False immediately, no browser interaction."""
+    from releasi.scheduler import runner
+    account, context, repo, page, _ = _make_reauth_mocks(li_rm=None)
+    result = await runner._attempt_li_rm_reauth(context, account, repo)
+    assert result is False
+    context.new_page.assert_not_called()
+    repo.update_account.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reauth_skipped_when_context_is_none(monkeypatch):
+    """context=None → return False immediately, no DB writes."""
+    from releasi.scheduler import runner
+    account, _ctx, repo, _page, _ = _make_reauth_mocks(li_rm="some-token")
+    result = await runner._attempt_li_rm_reauth(None, account, repo)
+    assert result is False
+    repo.update_account.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reauth_injects_li_rm_when_missing_from_browser(monkeypatch):
+    """li_rm not in browser cookies → add_cookies is called to inject it."""
+    from releasi.scheduler import runner
+    from releasi.linkedin.navigator import LinkedInNavigator
+    account, context, repo, page, nav_result = _make_reauth_mocks(
+        li_rm="my-li-rm", li_rm_in_browser=False,
+    )
+    monkeypatch.setattr(LinkedInNavigator, "go_to_feed", AsyncMock(return_value=nav_result))
+    monkeypatch.setattr(runner, "_record_session_touch", AsyncMock())
+    result = await runner._attempt_li_rm_reauth(context, account, repo)
+    assert result is True
+    context.add_cookies.assert_awaited_once()
+    injected = context.add_cookies.call_args[0][0][0]
+    assert injected["name"] == "li_rm"
+    assert injected["value"] == "my-li-rm"
+
+
+@pytest.mark.asyncio
+async def test_reauth_skips_injection_when_li_rm_already_in_browser(monkeypatch):
+    """li_rm already in the browser profile → add_cookies is NOT called."""
+    from releasi.scheduler import runner
+    from releasi.linkedin.navigator import LinkedInNavigator
+    account, context, repo, page, nav_result = _make_reauth_mocks(
+        li_rm="my-li-rm", li_rm_in_browser=True,
+    )
+    monkeypatch.setattr(LinkedInNavigator, "go_to_feed", AsyncMock(return_value=nav_result))
+    monkeypatch.setattr(runner, "_record_session_touch", AsyncMock())
+    result = await runner._attempt_li_rm_reauth(context, account, repo)
+    assert result is True
+    context.add_cookies.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reauth_recovers_cookie_expired_account_to_active(monkeypatch):
+    """When li_rm re-mint succeeds on a cookie_expired account, status is set to active."""
+    from releasi.scheduler import runner
+    from releasi.db.models import AccountStatus
+    from releasi.linkedin.navigator import LinkedInNavigator
+    account, context, repo, page, nav_result = _make_reauth_mocks(
+        li_rm="my-li-rm", account_status=AccountStatus.COOKIE_EXPIRED,
+    )
+    monkeypatch.setattr(LinkedInNavigator, "go_to_feed", AsyncMock(return_value=nav_result))
+    monkeypatch.setattr(runner, "_record_session_touch", AsyncMock())
+    result = await runner._attempt_li_rm_reauth(context, account, repo)
+    assert result is True
+    repo.update_account.assert_awaited_once_with(account, status="active")
+
+
+@pytest.mark.asyncio
+async def test_reauth_does_not_write_status_when_already_active(monkeypatch):
+    """When the account is already ACTIVE (routine li_at refresh), no DB write for status."""
+    from releasi.scheduler import runner
+    from releasi.db.models import AccountStatus
+    from releasi.linkedin.navigator import LinkedInNavigator
+    account, context, repo, page, nav_result = _make_reauth_mocks(
+        li_rm="my-li-rm", account_status=AccountStatus.ACTIVE,
+    )
+    monkeypatch.setattr(LinkedInNavigator, "go_to_feed", AsyncMock(return_value=nav_result))
+    monkeypatch.setattr(runner, "_record_session_touch", AsyncMock())
+    result = await runner._attempt_li_rm_reauth(context, account, repo)
+    assert result is True
+    repo.update_account.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reauth_returns_false_on_network_error(monkeypatch):
+    """Feed navigation fails (proxy/network) → return False, log network_error, no cookie_expired."""
+    from releasi.scheduler import runner
+    from releasi.linkedin.navigator import LinkedInNavigator
+    account, context, repo, page, nav_result = _make_reauth_mocks(
+        li_rm="my-li-rm", feed_success=False, feed_valid=False,
+    )
+    monkeypatch.setattr(LinkedInNavigator, "go_to_feed", AsyncMock(return_value=nav_result))
+    monkeypatch.setattr(runner, "_record_session_touch", AsyncMock())
+    result = await runner._attempt_li_rm_reauth(context, account, repo)
+    assert result is False
+    repo.log_session_event.assert_awaited_once_with(account.id, "reauth", "network_error")
+    repo.update_account.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reauth_returns_false_when_li_rm_also_dead(monkeypatch):
+    """Feed succeeds but session_valid=False → li_rm is revoked too, caller must mark expired."""
+    from releasi.scheduler import runner
+    from releasi.linkedin.navigator import LinkedInNavigator
+    account, context, repo, page, nav_result = _make_reauth_mocks(
+        li_rm="my-li-rm", feed_success=True, feed_valid=False,
+    )
+    monkeypatch.setattr(LinkedInNavigator, "go_to_feed", AsyncMock(return_value=nav_result))
+    record_touch = AsyncMock()
+    monkeypatch.setattr(runner, "_record_session_touch", record_touch)
+    result = await runner._attempt_li_rm_reauth(context, account, repo)
+    assert result is False
+    repo.update_account.assert_not_called()
+    record_touch.assert_awaited_once()
+    _, kwargs = record_touch.call_args
+    assert kwargs.get("result") == "reauth_failed"
+
+
+@pytest.mark.asyncio
+async def test_reauth_returns_false_on_exception(monkeypatch):
+    """Any unexpected exception → return False (fail-safe), never propagates."""
+    from releasi.scheduler import runner
+    from releasi.linkedin.navigator import LinkedInNavigator
+    account, context, repo, page, _ = _make_reauth_mocks(li_rm="my-li-rm")
+    monkeypatch.setattr(LinkedInNavigator, "go_to_feed", AsyncMock(side_effect=RuntimeError("boom")))
+    result = await runner._attempt_li_rm_reauth(context, account, repo)
+    assert result is False
+    repo.update_account.assert_not_called()
