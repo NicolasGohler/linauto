@@ -284,6 +284,16 @@ class Repository:
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
+    async def get_campaigns_due_for_resume(self, now: datetime) -> Sequence[Campaign]:
+        from releasi.db.models import CampaignStatus
+        stmt = select(Campaign).where(
+            Campaign.status == CampaignStatus.PAUSED,
+            Campaign.resume_at.isnot(None),
+            Campaign.resume_at <= now,
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+
     async def update_campaign(self, campaign: Campaign, **kwargs) -> Campaign:
         for key, value in kwargs.items():
             setattr(campaign, key, value)

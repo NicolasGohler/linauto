@@ -166,6 +166,9 @@ export const activateCampaign = (id: string) =>
 export const pauseCampaign = (id: string) =>
   apiFetch<Campaign>(`/campaigns/${id}/pause`, { method: "POST" });
 
+export const timedPauseCampaign = (id: string, minutes: number = 60) =>
+  apiFetch<Campaign>(`/campaigns/${id}/timed-pause?minutes=${minutes}`, { method: "POST" });
+
 export const resetCampaignLeads = (id: string) =>
   apiFetch<{ reset_count: number }>(`/campaigns/${id}/reset-leads`, { method: "POST" });
 

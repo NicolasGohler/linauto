@@ -124,6 +124,15 @@ export function usePauseCampaign() {
   });
 }
 
+export function useTimedPauseCampaign() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, minutes }: { id: string; minutes?: number }) =>
+      api.timedPauseCampaign(id, minutes),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["campaigns"] }),
+  });
+}
+
 export function useStartAcceptanceCatchup() {
   const qc = useQueryClient();
   return useMutation({

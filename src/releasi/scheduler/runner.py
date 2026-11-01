@@ -2635,6 +2635,25 @@ async def daily_summary():
         await session.close()
 
 
+async def resume_timed_pauses():
+    """Auto-resume campaigns whose timed pause has expired."""
+    from releasi.db.models import CampaignStatus
+    session_factory = get_session_factory()
+    async with session_factory() as session:
+        repo = Repository(session)
+        now = datetime.utcnow()
+        campaigns = await repo.get_campaigns_due_for_resume(now)
+        for campaign in campaigns:
+            await repo.update_campaign(
+                campaign, status=CampaignStatus.ACTIVE, paused_at=None, resume_at=None,
+            )
+            logger.info(
+                "scheduler.timed_pause_resumed",
+                campaign_id=campaign.id,
+                campaign_name=campaign.name,
+            )
+
+
 async def start_scheduler():
     """Start the APScheduler daemon. Blocks until interrupted."""
     await init_db()
@@ -2780,6 +2799,14 @@ async def start_scheduler():
         CronTrigger(hour=10, minute=0),
         id="no_activity_alert",
         name="No-Activity Alert",
+        replace_existing=True,
+    )
+
+    scheduler.add_job(
+        resume_timed_pauses,
+        IntervalTrigger(minutes=1),
+        id="resume_timed_pauses",
+        name="Resume Timed Pauses",
         replace_existing=True,
     )
 

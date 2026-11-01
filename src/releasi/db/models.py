@@ -178,6 +178,7 @@ class Campaign(Base):
     # A non-NULL value on an ACTIVE campaign signals "there's a stale pause
     # window that was never scanned."
     paused_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    resume_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=_utcnow, onupdate=_utcnow

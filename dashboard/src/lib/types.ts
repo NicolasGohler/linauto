@@ -78,6 +78,7 @@ export interface Campaign {
   account_dispatch_mode: string | null;
   estimated_remaining_today: number | null;
   paused_at: string | null;
+  resume_at: string | null;
   created_at: string;
   updated_at: string;
 }

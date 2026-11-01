@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
-import { useCampaigns, useActivateCampaign, usePauseCampaign } from "@/hooks/use-queries";
+import { useCampaigns, useActivateCampaign, usePauseCampaign, useTimedPauseCampaign } from "@/hooks/use-queries";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,10 +10,29 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StatusBadge } from "@/components/status-badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { AddCard } from "@/components/add-card";
 import { toast } from "sonner";
 import { ResumeCampaignDialog, shouldOfferCatchup } from "@/components/resume-campaign-dialog";
 import type { Campaign } from "@/lib/types";
+
+function useCountdown(targetIso: string | null) {
+  const [remaining, setRemaining] = useState("");
+  useEffect(() => {
+    if (!targetIso) { setRemaining(""); return; }
+    const tick = () => {
+      const diff = new Date(targetIso.endsWith("Z") ? targetIso : targetIso + "Z").getTime() - Date.now();
+      if (diff <= 0) { setRemaining(""); return; }
+      const m = Math.floor(diff / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      setRemaining(m > 0 ? `${m}m ${s}s` : `${s}s`);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [targetIso]);
+  return remaining;
+}
 
 type SortOption = "name" | "progress" | "remaining" | "last_activity";
 
@@ -31,6 +50,7 @@ export default function CampaignsPage() {
   const { data: campaigns, isLoading } = useCampaigns({ status: statusFilter });
   const activate = useActivateCampaign();
   const pause = usePauseCampaign();
+  const timedPause = useTimedPauseCampaign();
   const [resumeDialogCampaign, setResumeDialogCampaign] = useState<Campaign | null>(null);
 
   function getProgress(counts: Record<string, number> | null | undefined) {
@@ -137,72 +157,24 @@ export default function CampaignsPage() {
         </Card>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((c) => {
-            const progress = getProgress(c.status_counts);
-            return (
-              <Link key={c.id} href={`/campaigns/${c.id}`}>
-                <Card className="hover:border-muted-foreground/30 transition-colors cursor-pointer">
-                  <CardContent className="p-5 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-medium truncate">{c.name}</h3>
-                      <StatusBadge status={c.status} />
-                    </div>
-                    <p className="text-xs text-muted-foreground">{c.account_name ?? "—"}</p>
-                    {c.account_status === "cookie_expired" ? (
-                      <p className="text-xs text-red-400">
-                        Cookie expired — update in{" "}
-                        <Link href={`/accounts/${c.account_id}`} className="underline hover:text-red-300" onClick={(e) => e.stopPropagation()}>
-                          account settings
-                        </Link>
-                      </p>
-                    ) : c.account_paused_until && new Date(c.account_paused_until) > new Date() ? (
-                      <p className="text-xs text-amber-400">
-                        Paused — resumes{" "}
-                        {new Date(c.account_paused_until.endsWith("Z") ? c.account_paused_until : c.account_paused_until + "Z").toLocaleString(undefined, {
-                          timeZone: c.account_timezone ?? undefined,
-                          weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-                        })}
-                      </p>
-                    ) : null}
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>
-                          {progress.accepted + progress.sent + progress.other} / {progress.total} processed
-                          {progress.pending > 0 && (
-                            <span className="ml-1 text-muted-foreground/60">· {progress.pending} left</span>
-                          )}
-                        </span>
-                        <span>{progress.acceptedPct + progress.sentPct + progress.otherPct}%</span>
-                      </div>
-                      <div className="flex h-1.5 w-full rounded-full bg-muted overflow-hidden">
-                        {progress.acceptedPct > 0 && <div className="h-full bg-emerald-500 transition-all" style={{ width: `${progress.acceptedPct}%` }} />}
-                        {progress.sentPct > 0 && <div className="h-full bg-blue-500 transition-all" style={{ width: `${progress.sentPct}%` }} />}
-                        {progress.otherPct > 0 && <div className="h-full bg-zinc-500 transition-all" style={{ width: `${progress.otherPct}%` }} />}
-                      </div>
-                    </div>
-                    <div className="flex gap-2 pt-1">
-                      {(c.status === "draft" || c.status === "paused") ? (
-                        <Button size="sm" variant="outline" onClick={(e) => {
-                          e.preventDefault();
-                          // Long pause → offer catchup dialog. Short pause / draft → activate directly.
-                          if (c.status === "paused" && shouldOfferCatchup(c)) {
-                            setResumeDialogCampaign(c);
-                          } else {
-                            activate.mutate(c.id, { onSuccess: () => toast.success("Campaign activated") });
-                          }
-                        }}>Activate</Button>
-                      ) : c.status === "active" ? (
-                        <Button size="sm" variant="outline" onClick={(e) => {
-                          e.preventDefault();
-                          pause.mutate(c.id, { onSuccess: () => toast.success("Campaign paused") });
-                        }}>Pause</Button>
-                      ) : null}
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
-            );
-          })}
+          <TooltipProvider delayDuration={300}>
+            {filtered.map((c) => (
+              <CampaignCard
+                key={c.id}
+                campaign={c}
+                getProgress={getProgress}
+                onActivate={(campaign) => {
+                  if (campaign.status === "paused" && shouldOfferCatchup(campaign)) {
+                    setResumeDialogCampaign(campaign);
+                  } else {
+                    activate.mutate(campaign.id, { onSuccess: () => toast.success("Campaign activated") });
+                  }
+                }}
+                onPause={(id) => pause.mutate(id, { onSuccess: () => toast.success("Campaign paused") })}
+                onTimedPause={(id, min) => timedPause.mutate({ id, minutes: min }, { onSuccess: () => toast.success(`Paused for ${min} min — will auto-resume`) })}
+              />
+            ))}
+          </TooltipProvider>
           <AddCard href="/campaigns/new" label="New campaign" />
         </div>
       )}
@@ -214,5 +186,100 @@ export default function CampaignsPage() {
         />
       )}
     </div>
+  );
+}
+
+function CampaignCard({
+  campaign: c,
+  getProgress,
+  onActivate,
+  onPause,
+  onTimedPause,
+}: {
+  campaign: Campaign;
+  getProgress: (counts: Record<string, number> | null | undefined) => ReturnType<typeof Object>;
+  onActivate: (c: Campaign) => void;
+  onPause: (id: string) => void;
+  onTimedPause: (id: string, minutes: number) => void;
+}) {
+  const progress = getProgress(c.status_counts) as any;
+  const countdown = useCountdown(c.resume_at);
+  const isTimedPause = c.status === "paused" && !!c.resume_at && !!countdown;
+
+  return (
+    <Link href={`/campaigns/${c.id}`}>
+      <Card className="hover:border-muted-foreground/30 transition-colors cursor-pointer">
+        <CardContent className="p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="font-medium truncate">{c.name}</h3>
+            <StatusBadge status={c.status} />
+          </div>
+          <p className="text-xs text-muted-foreground">{c.account_name ?? "—"}</p>
+          {isTimedPause ? (
+            <p className="text-xs text-amber-400">
+              Resuming in {countdown}
+            </p>
+          ) : c.account_status === "cookie_expired" ? (
+            <p className="text-xs text-red-400">
+              Cookie expired — update in{" "}
+              <Link href={`/accounts/${c.account_id}`} className="underline hover:text-red-300" onClick={(e) => e.stopPropagation()}>
+                account settings
+              </Link>
+            </p>
+          ) : c.account_paused_until && new Date(c.account_paused_until) > new Date() ? (
+            <p className="text-xs text-amber-400">
+              Paused — resumes{" "}
+              {new Date(c.account_paused_until.endsWith("Z") ? c.account_paused_until : c.account_paused_until + "Z").toLocaleString(undefined, {
+                timeZone: c.account_timezone ?? undefined,
+                weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+              })}
+            </p>
+          ) : null}
+          <div className="space-y-1">
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>
+                {progress.accepted + progress.sent + progress.other} / {progress.total} processed
+                {progress.pending > 0 && (
+                  <span className="ml-1 text-muted-foreground/60">· {progress.pending} left</span>
+                )}
+              </span>
+              <span>{progress.acceptedPct + progress.sentPct + progress.otherPct}%</span>
+            </div>
+            <div className="flex h-1.5 w-full rounded-full bg-muted overflow-hidden">
+              {progress.acceptedPct > 0 && <div className="h-full bg-emerald-500 transition-all" style={{ width: `${progress.acceptedPct}%` }} />}
+              {progress.sentPct > 0 && <div className="h-full bg-blue-500 transition-all" style={{ width: `${progress.sentPct}%` }} />}
+              {progress.otherPct > 0 && <div className="h-full bg-zinc-500 transition-all" style={{ width: `${progress.otherPct}%` }} />}
+            </div>
+          </div>
+          <div className="flex gap-2 pt-1">
+            {(c.status === "draft" || c.status === "paused") ? (
+              <Button size="sm" variant="outline" onClick={(e) => {
+                e.preventDefault();
+                onActivate(c);
+              }}>Activate</Button>
+            ) : c.status === "active" ? (
+              <>
+                <Button size="sm" variant="outline" onClick={(e) => {
+                  e.preventDefault();
+                  onPause(c.id);
+                }}>Pause</Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button size="sm" variant="outline" onClick={(e) => {
+                      e.preventDefault();
+                      onTimedPause(c.id, 60);
+                    }}>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                      1h
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Pause for 1 hour, then auto-resume</TooltipContent>
+                </Tooltip>
+              </>
+            ) : null}
+          </div>
+        </CardContent>
+      </Card>
+    </Link>
   );
 }

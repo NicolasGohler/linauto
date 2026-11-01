@@ -142,7 +142,7 @@ async def activate_campaign(campaign_id: str, repo: Repository = Depends(get_rep
     # Clear paused_at on resume — if no catchup is run, the clock resets so
     # the next pause starts fresh rather than accumulating against the original
     # pause date.
-    campaign = await repo.update_campaign(campaign, status=CampaignStatus.ACTIVE, paused_at=None)
+    campaign = await repo.update_campaign(campaign, status=CampaignStatus.ACTIVE, paused_at=None, resume_at=None)
 
     # Trigger a fresh plan on resume so leads are scheduled immediately
     # rather than waiting until 06:00 the next morning.
@@ -189,7 +189,29 @@ async def pause_campaign(campaign_id: str, repo: Repository = Depends(get_repo))
 
     # Always stamp paused_at so the dialog threshold reflects the current
     # pause, not a stale one from a previous cycle.
-    updates = {"status": CampaignStatus.PAUSED, "paused_at": _datetime.utcnow()}
+    updates = {"status": CampaignStatus.PAUSED, "paused_at": _datetime.utcnow(), "resume_at": None}
+    campaign = await repo.update_campaign(campaign, **updates)
+    return await _enrich_campaign(repo, campaign)
+
+
+@router.post("/campaigns/{campaign_id}/timed-pause", response_model=CampaignOut)
+async def timed_pause_campaign(
+    campaign_id: str,
+    minutes: int = Query(default=60, ge=5, le=480),
+    repo: Repository = Depends(get_repo),
+):
+    from datetime import datetime as _datetime, timedelta as _timedelta
+
+    campaign = await repo.get_campaign(campaign_id)
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    resume_at = _datetime.utcnow() + _timedelta(minutes=minutes)
+    updates = {
+        "status": CampaignStatus.PAUSED,
+        "paused_at": _datetime.utcnow(),
+        "resume_at": resume_at,
+    }
     campaign = await repo.update_campaign(campaign, **updates)
     return await _enrich_campaign(repo, campaign)
 
