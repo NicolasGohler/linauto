@@ -36,9 +36,11 @@ type SortKey = "name" | "company" | "status" | "last_activity_at" | "created_at"
 
 const STATUS_LABELS: Record<string, string> = {
   connection_requested: "requested",
+  followup_scheduled: "followup due",
+  followup_sent: "followup sent",
 };
 
-const ALL_STATUSES = ["pending", "scheduled", "connection_requested", "connected", "completed", "skipped", "error", "removed"];
+const ALL_STATUSES = ["pending", "scheduled", "connection_requested", "connected", "followup_scheduled", "followup_sent", "completed", "skipped", "error", "removed"];
 // "removed" leads are noise in the default view — start with them unchecked.
 const DEFAULT_STATUSES = new Set(ALL_STATUSES.filter((s) => s !== "removed"));
 
