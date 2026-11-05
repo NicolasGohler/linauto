@@ -192,10 +192,10 @@ _last_session_end: dict = {}
 _keepalive_ran: dict = {}      # keep_alive: only once per local day, morning window
 _acceptance_checked: dict = {} # check_acceptances: only once per local day
 
-# Continuous dispatch mode — per-account daily state.
-# Resets automatically when the account's local date changes.
-# {account_id: {state_date, work_start, work_end, target_gap_sec, next_gap_sec}}
-_continuous_state: dict = {}
+# Continuous dispatch pacing is stateless (see scheduler/pacing.py): the work window is
+# derived from account id + local date + current timezone, and progress comes from the DB.
+# Only watchdog alert de-duplication is held in memory: {(account_id, date, kind)}.
+_pacing_alerts_sent: set = set()
 
 # Telegram enrichment sweeper lock — ensures only one sweep runs at a time.
 # Held for the duration of the find_telegram() call (and any flood-wait sleep).
@@ -477,86 +477,20 @@ async def _get_repo() -> tuple:
     return Repository(session), session
 
 
-def _continuous_day_state(account, now_utc: datetime) -> dict:
-    """Return (and lazily initialise) today's continuous dispatch state for account.
-
-    Work-window boundaries and target gap are generated once per local calendar
-    day with random variation, then held in memory for the rest of that day.
-    On container restart the dict is empty — state regenerates on first call,
-    which is safe: next_gap_sec starts at 0 so the first post-restart session
-    fires immediately (gap elapsed = infinite).
-    """
-    from zoneinfo import ZoneInfo
-
-    acct_now = _acct_local_now(account)
-    acct_today = acct_now.date()
-    existing = _continuous_state.get(account.id)
-    if existing and existing["state_date"] == acct_today:
-        return existing
+def _continuous_window(account):
+    """Today's (work_start, work_end) in naive UTC for this account's current timezone."""
+    from releasi.scheduler import pacing
 
     settings = get_settings()
-    rng = random.Random()  # unseeded — fresh randomness each day
-
-    # Work-window variation (same ranges as the planner, ±30-45 min)
-    start_offset = rng.randint(settings.work_start_variation[0], settings.work_start_variation[1])
-    end_offset = rng.randint(settings.work_end_variation[0], settings.work_end_variation[1])
-
-    try:
-        tz = ZoneInfo(account.timezone or "UTC")
-        base_start = datetime(
-            acct_today.year, acct_today.month, acct_today.day,
-            settings.work_start_hour, 0, tzinfo=tz,
-        ).astimezone(_dt_tz.utc).replace(tzinfo=None)
-        base_end = datetime(
-            acct_today.year, acct_today.month, acct_today.day,
-            settings.work_end_hour, 0, tzinfo=tz,
-        ).astimezone(_dt_tz.utc).replace(tzinfo=None)
-    except Exception:
-        base_start = datetime.combine(acct_today, datetime.min.time().replace(hour=settings.work_start_hour))
-        base_end = datetime.combine(acct_today, datetime.min.time().replace(hour=settings.work_end_hour))
-
-    work_start = base_start + timedelta(minutes=start_offset)
-    work_end = base_end + timedelta(minutes=end_offset)
-
-    # Dynamic gap: spread daily_limit evenly across the work window.
-    # avg_batch = midpoint of continuous_batch_size range.
-    avg_batch = (settings.continuous_batch_size[0] + settings.continuous_batch_size[1]) / 2
-    work_window_min = max(1.0, (work_end - work_start).total_seconds() / 60)
-    sessions_needed = max(1.0, account.daily_limit / avg_batch)
-    target_gap_sec = (work_window_min / sessions_needed) * 60  # seconds
-
-    state = {
-        "state_date": acct_today,
-        "work_start": work_start,
-        "work_end": work_end,
-        "target_gap_sec": target_gap_sec,
-        "next_gap_sec": 0.0,  # first session fires as soon as work window opens
-    }
-    _continuous_state[account.id] = state
-
-    try:
-        from zoneinfo import ZoneInfo as _ZI
-        _tz = _ZI(account.timezone or "UTC")
-        _ws_lbl = work_start.replace(tzinfo=_dt_tz.utc).astimezone(_tz).strftime("%H:%M %Z")
-        _we_lbl = work_end.replace(tzinfo=_dt_tz.utc).astimezone(_tz).strftime("%H:%M %Z")
-    except Exception:
-        _ws_lbl = work_start.strftime("%H:%M UTC")
-        _we_lbl = work_end.strftime("%H:%M UTC")
-
-    logger.info(
-        "dispatch.continuous_day_init",
-        account=account.name,
-        work_start=_ws_lbl,
-        work_end=_we_lbl,
-        target_gap_min=round(target_gap_sec / 60, 1),
-        daily_limit=account.daily_limit,
+    return pacing.work_window(
+        account.id,
+        _acct_local_now(account).date(),
+        account.timezone,
+        settings.work_start_hour,
+        settings.work_end_hour,
+        tuple(settings.work_start_variation),
+        tuple(settings.work_end_variation),
     )
-    return state
-
-
-def _next_continuous_gap(target_gap_sec: float) -> float:
-    """Randomise ±15 % around the target gap. Returns seconds."""
-    return random.uniform(target_gap_sec * 0.85, target_gap_sec * 1.15)
 
 
 async def _dispatch_continuous(
@@ -564,13 +498,19 @@ async def _dispatch_continuous(
     repo: "Repository",
     pool_context,
     remaining: int,
+    batch_size: Optional[int] = None,
 ) -> int:
-    """Run one continuous-mode dispatch session. Returns number of successful sends."""
+    """Run one continuous-mode dispatch session. Returns number of successful sends.
+
+    batch_size comes from the pacing decision; when omitted it is drawn from the
+    configured range.
+    """
     from releasi.campaign.executor import CampaignExecutor
     from releasi.linkedin.noise import BrowsingNoise
 
     settings = get_settings()
-    batch_size = random.randint(settings.continuous_batch_size[0], settings.continuous_batch_size[1])
+    if batch_size is None:
+        batch_size = random.randint(settings.continuous_batch_size[0], settings.continuous_batch_size[1])
     batch_size = min(batch_size, remaining)
     if batch_size <= 0:
         return 0
@@ -1122,22 +1062,40 @@ async def dispatch():
             _is_continuous = account.dispatch_mode != "planned"
 
             if _is_continuous:
-                # ── Continuous mode: dynamic gap + work-window guard ──────────
-                _state = _continuous_day_state(account, now)
-                if now < _state["work_start"] or now >= _state["work_end"]:
-                    continue  # outside today's work window
-                _last_end = _last_session_end.get(account.id)
-                if _last_end is not None:
-                    _elapsed = (now - _last_end).total_seconds()
-                    _gap = _state["next_gap_sec"]
-                    if _elapsed < _gap:
-                        logger.debug(
-                            "dispatch.continuous_gap_enforced",
-                            account=account.name,
-                            elapsed_min=round(_elapsed / 60, 1),
-                            gap_min=round(_gap / 60, 1),
-                        )
-                        continue
+                # ── Continuous mode: stateless pacing from DB progress ────────
+                from releasi.scheduler import pacing
+
+                _settings = get_settings()
+                _window = _continuous_window(account)
+                _sent_now = await repo.get_daily_requests_sent(account.id)
+                _last_send = await repo.get_last_connection_request_at(account.id)
+                # A session that sent nothing (errors, no pending) still counts for the
+                # min-gap so a failing account is not retried every 5 minutes.
+                _mem_end = _last_session_end.get(account.id)
+                if _mem_end is not None and (_last_send is None or _mem_end > _last_send):
+                    _last_send = _mem_end
+                _decision = pacing.decide(
+                    now, _window, _sent_now, account.daily_limit, _last_send,
+                    tuple(_settings.continuous_batch_size),
+                )
+                if not _decision.run:
+                    logger.debug(
+                        "dispatch.pacing_wait",
+                        account=account.name,
+                        reason=_decision.reason,
+                        sent=_sent_now,
+                        target=round(_decision.target_now, 1),
+                    )
+                    continue
+                logger.info(
+                    "dispatch.pacing_run",
+                    account=account.name,
+                    reason=_decision.reason,
+                    sent=_sent_now,
+                    target=round(_decision.target_now, 1),
+                    batch=_decision.batch_size,
+                    urgent=_decision.urgent,
+                )
             else:
                 # ── Planned mode: fixed minimum inter-session gap ─────────────
                 _min_gap = get_settings().inter_session_delay[0]  # e.g. 2700s = 45 min
@@ -1155,11 +1113,16 @@ async def dispatch():
 
             # Check daily limits (both modes)
             sent_today_count = await repo.get_daily_requests_sent(account.id)
-            can_send, remaining = await rate_limits.can_send_today(
-                account.id,
-                account.daily_limit,
-                sent_today_count,
-            )
+            if _is_continuous:
+                # Continuous mode targets exactly daily_limit (no +/-15% variation).
+                remaining = max(0, account.daily_limit - sent_today_count)
+                can_send = remaining > 0
+            else:
+                can_send, remaining = await rate_limits.can_send_today(
+                    account.id,
+                    account.daily_limit,
+                    sent_today_count,
+                )
 
             if not can_send:
                 logger.info("dispatch.daily_limit_reached", account=account.name)
@@ -1299,12 +1262,14 @@ async def dispatch():
 
                 # ── Route to continuous or planned dispatch ───────────────
                 if _is_continuous:
-                    sent = await _dispatch_continuous(account, repo, pool_context, remaining)
+                    sent = await _dispatch_continuous(
+                        account, repo, pool_context, remaining, _decision.batch_size,
+                    )
                     if sent > 0:
                         pool.confirm_session(account.id)
                     _last_session_end[account.id] = datetime.utcnow()
-                    _state["next_gap_sec"] = _next_continuous_gap(_state["target_gap_sec"])
-                    # Gap enforced via _last_session_end (in-memory) above.
+                    # Inter-session gap is derived from the last CONNECTION_REQUEST
+                    # row in action_log (pacing.decide), so it survives restarts.
                     # Don't write paused_until — broadcast dispatcher reads it
                     # as a real cooldown and would skip for the full gap window.
                 else:
@@ -1315,6 +1280,80 @@ async def dispatch():
 
     except Exception as e:
         logger.error("dispatch.failed", error=str(e))
+    finally:
+        await session.close()
+
+
+async def pacing_watchdog():
+    """Alert when connection-request volume is falling behind, instead of discovering it later.
+
+    Runs every 30 min. Per continuous-mode account, during the work window it flags:
+      - sent < 60% of the linear expectation (after 25% of the window has passed)
+      - nothing to send (no pending leads)
+      - dispatch blocked by a cooldown/pause
+    After the window closes it posts one daily recap with the week-to-date count.
+    Each alert fires at most once per account per local day per kind.
+    """
+    from releasi.scheduler import pacing
+
+    repo, session = await _get_repo()
+    try:
+        now = datetime.utcnow()
+        for account in await repo.list_active_accounts():
+            if account.dispatch_mode == "planned":
+                continue
+            local_date = _acct_local_now(account).date()
+            window = _continuous_window(account)
+            work_start, work_end = window
+            sent = await repo.get_daily_requests_sent(account.id)
+            limit = account.daily_limit
+            if sent == 0 and local_date.weekday() not in get_settings().work_days:
+                continue  # non-work day with no activity: nothing to flag
+
+            def _once(kind: str) -> bool:
+                key = (account.id, local_date, kind)
+                if key in _pacing_alerts_sent:
+                    return False
+                _pacing_alerts_sent.add(key)
+                return True
+
+            if work_start <= now < work_end:
+                span = (work_end - work_start).total_seconds()
+                frac = (now - work_start).total_seconds() / span
+                expected = pacing.expected_by_now(now, window, limit)
+                if account.paused_until and not is_cooldown_expired(account.paused_until):
+                    if frac >= 0.25 and _once("paused"):
+                        await slack_notify(
+                            f":pause_button: *{account.name}* paused until {account.paused_until} UTC "
+                            f"with {sent}/{limit} sent today."
+                        )
+                    continue
+                if frac >= 0.25 and sent < 0.6 * expected and _once("behind"):
+                    await slack_notify(
+                        f":warning: *{account.name}* is behind pace: {sent}/{limit} sent, "
+                        f"expected about {round(expected)} by now ({round(frac * 100)}% of the work window)."
+                    )
+                if sent < limit:
+                    has_pending = False
+                    for c in await repo.get_active_campaigns(account.id):
+                        if await repo.get_pending_leads_via_assignments(c.id, limit=1):
+                            has_pending = True
+                            break
+                    if not has_pending and _once("no_pending"):
+                        await slack_notify(
+                            f":inbox_tray: *{account.name}* has no pending leads to send "
+                            f"({sent}/{limit} today). Add or unpause a lead list."
+                        )
+            elif now >= work_end and _once("recap"):
+                week_start = local_date - timedelta(days=local_date.weekday())
+                week_sent = await repo.get_weekly_request_count(account.id, week_start)
+                mark = ":white_check_mark:" if sent >= limit else ":warning:"
+                await slack_notify(
+                    f"{mark} *{account.name}* daily recap: {sent}/{limit} connection requests. "
+                    f"Week to date: {week_sent} (full week at this limit: {limit * 5} on weekdays)."
+                )
+    except Exception as e:
+        logger.error("pacing_watchdog.failed", error=str(e))
     finally:
         await session.close()
 
@@ -2645,6 +2684,16 @@ async def start_scheduler():
         name="Action Dispatcher",
         replace_existing=True,
         misfire_grace_time=600,
+    )
+
+    # Pacing watchdog — flags behind-pace days, empty queues and paused accounts, and
+    # posts a daily recap. Alerts are de-duplicated per account per local day.
+    scheduler.add_job(
+        pacing_watchdog,
+        IntervalTrigger(minutes=30),
+        id="pacing_watchdog",
+        name="Pacing Watchdog",
+        replace_existing=True,
     )
 
     # Acceptance checker — fires hourly; per-account logic checks if it's

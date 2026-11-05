@@ -881,6 +881,21 @@ class Repository:
         )
         return result.scalar_one_or_none() or 0
 
+    async def get_last_connection_request_at(self, account_id: str) -> Optional[datetime]:
+        """Naive-UTC time of the account's most recent successful connection request.
+
+        Pacing derives the inter-session gap from this durable record instead of
+        an in-memory timestamp, so a restart does not reset it.
+        """
+        result = await self.session.execute(
+            select(func.max(ActionLog.created_at)).where(
+                ActionLog.account_id == account_id,
+                ActionLog.action_type == ActionType.CONNECTION_REQUEST,
+                ActionLog.status == ActionLogStatus.SUCCESS,
+            )
+        )
+        return result.scalar_one_or_none()
+
     async def get_followup_messages_sent_today(
         self, account_id: str, stat_date: date | None = None
     ) -> int:
