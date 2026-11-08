@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 
 function LoginForm() {
-  const router = useRouter();
   const params = useSearchParams();
-  const next = params.get("next") ?? "/";
+  // Only allow same-site relative paths (blocks open redirects via ?next=).
+  const rawNext = params.get("next") ?? "/";
+  const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/";
 
   const [handle, setHandle] = useState("");
   const [password, setPassword] = useState("");
@@ -25,7 +26,10 @@ function LoginForm() {
     });
 
     if (res.ok) {
-      router.replace(next);
+      // Full navigation, not router.replace(): the client router can reuse a cached
+      // redirect-to-/login from before the cookie existed, which bounced users back
+      // to the sign-in form and forced a second login.
+      window.location.assign(next);
       return;
     }
 
@@ -82,7 +86,7 @@ function LoginForm() {
         </form>
 
         <p className="text-center text-xs text-muted-foreground">
-          Session expires after 1 week
+          Stays signed in for 30 days
         </p>
       </div>
     </div>

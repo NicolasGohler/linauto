@@ -6,12 +6,12 @@
 // secret. The middleware verifies expiry and signature; routes that need the
 // caller's identity decode the userId portion after `verifyToken` succeeds.
 //
-// Sessions expire after 1 week. Rotating ``DASHBOARD_SECRET`` invalidates
+// Sessions expire after 30 days. Rotating ``DASHBOARD_SECRET`` invalidates
 // every outstanding cookie.
 
 export const COOKIE_NAME = "releasi_session";
 export const USER_COOKIE_NAME = "releasi_user";
-export const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
+export const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
 
 function b64encode(bytes: Uint8Array): string {
   let str = "";
