@@ -24,6 +24,7 @@ from releasi.linkedin.pool import get_browser_pool, init_pool, shutdown_pool
 from releasi.scheduler.planner import generate_daily_plan, SlotType
 from releasi.safety.cooldown import is_cooldown_expired, calculate_cooldown_resume, push_cooldown_one_day
 from releasi.safety import limits as rate_limits
+from releasi.safety import suppression
 from releasi.campaign.state_machine import validate_transition, InvalidTransition
 from releasi.notifications.slack import notify as slack_notify
 from releasi.safety.dispatch_decisions import (
@@ -1620,6 +1621,13 @@ async def check_acceptances():
                 for lead, campaign in newly_connected:
                     if not campaign.followup_enabled:
                         continue
+                    _dnc = await suppression.check_lead(repo.session, lead)
+                    if _dnc:
+                        logger.warning(
+                            "followup.suppressed_do_not_contact",
+                            url=lead.linkedin_url, rule=_dnc,
+                        )
+                        continue  # stays CONNECTED, no follow-up scheduled
                     has_messages = any(
                         getattr(campaign, f"followup_message_{i}", None)
                         for i in (1, 2, 3)

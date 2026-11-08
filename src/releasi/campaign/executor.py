@@ -21,6 +21,7 @@ from releasi.campaign.template import render_template
 from releasi.campaign.state_machine import validate_transition
 from releasi.linkedin.profile_filter import ProfileFilters
 from releasi.safety.delays import DelayGenerator
+from releasi.safety import suppression
 
 logger = structlog.get_logger()
 
@@ -68,6 +69,24 @@ class CampaignExecutor:
         if not lead.linkedin_url:
             result["skipped"] = True
             result["reason"] = "no_linkedin_url"
+            return result
+
+        # Do-not-contact list: never send to suppressed companies/people.
+        _dnc = await suppression.check_lead(self.repo.session, lead)
+        if _dnc:
+            logger.warning("executor.do_not_contact", url=lead.linkedin_url, rule=_dnc)
+            await self.repo.update_lead(
+                lead, campaign_id_override=campaign.id,
+                status=LeadStatus.SKIPPED, error_message=f"do_not_contact:{_dnc}",
+            )
+            await self.repo.log_action(
+                account_id=account.id, campaign_id=campaign.id, lead_id=lead.id,
+                action_type=ActionType.CONNECTION_REQUEST,
+                status=ActionLogStatus.SKIPPED,
+                details={"reason": f"do_not_contact:{_dnc}"},
+            )
+            result["skipped"] = True
+            result["reason"] = f"do_not_contact:{_dnc}"
             return result
 
         # Pool mode: use shared context, only manage pages
@@ -360,6 +379,18 @@ class CampaignExecutor:
             "reason": None,
         }
 
+        # ── Guard 0: do-not-contact list ───────────────────────────────────────
+        _dnc = await suppression.check_lead(self.repo.session, lead)
+        if _dnc:
+            logger.warning("followup.do_not_contact", url=lead.linkedin_url, rule=_dnc)
+            await self.repo.update_lead(
+                lead, campaign_id_override=campaign.id,
+                status=LeadStatus.REMOVED, error_message=f"do_not_contact:{_dnc}",
+            )
+            result["skipped"] = True
+            result["reason"] = f"do_not_contact:{_dnc}"
+            return result
+
         # ── Guard 1: action-log resume ─────────────────────────────────────────
         # Check the highest message_index already successfully sent for this lead.
         # If all messages were sent in a prior run, skip entirely (dedup).
@@ -611,6 +642,17 @@ class CampaignExecutor:
             )
             result["skipped"] = True
             result["skipped_reason"] = "lead_deleted"
+            return result
+
+        _dnc = await suppression.check_lead(self.repo.session, lead)
+        if _dnc:
+            await self.repo.update_broadcast_lead(
+                broadcast_lead,
+                status="skipped",
+                skipped_reason=f"do_not_contact:{_dnc}",
+            )
+            result["skipped"] = True
+            result["skipped_reason"] = f"do_not_contact:{_dnc}"
             return result
 
         if not lead.linkedin_url:
