@@ -1387,9 +1387,10 @@ class LinkedInActions:
         if count is not None:
             return count
 
-        # Fallback: count visible withdraw anchors on the first loaded page
-        n = await self.page.locator(selectors.INVITATION_WITHDRAW_ANCHOR).count()
-        return n if n > 0 else 0
+        # The pill was not found. Visible cards are only the first page, so never
+        # report that as the total: signal failure instead of a plausible wrong number.
+        logger.warning("action.invitation_count_pill_missing", url=self.page.url)
+        return -1
 
     async def _extract_invitation_urls(self) -> list:
         """Extract all /in/ profile URLs from the currently loaded invitation manager page."""
@@ -1848,7 +1849,7 @@ class LinkedInActions:
         # ── Read pending count from DOM (People pill) ────────────────────────
         dom_total = await self._withdrawal_evaluate("""() => {
             for (const el of document.querySelectorAll('a,li,span,button,[role="tab"]')) {
-                const m = (el.textContent||'').match(/^\\s*People\\s*\\((\\d[\\d,]*)\\)\\s*$/i);
+                const m = (el.textContent||'').match(/^\\s*People\\s*\\(?\\s*(\\d[\\d,]*)\\s*\\)?\\s*$/i);
                 if (m) return parseInt(m[1].replace(/,/g,''), 10);
             }
             return null;
@@ -1864,9 +1865,10 @@ class LinkedInActions:
         count = min(count, dom_total)
 
         # ── Build SDUI pagination payload ────────────────────────────────────
+        PAGER_ID = "com.linkedin.sdui.pagers.mynetwork.scribeSentInvitationManagerList"
         PAGINATION_URL = (
             "/flagship-web/rsc-action/actions/pagination"
-            "?sduiid=com.linkedin.sdui.pagers.mynetwork.invitationsList"
+            "?sduiid=com.linkedin.sdui.pagers.mynetwork.scribeSentInvitationManagerList"
         )
         WITHDRAW_URL = (
             "/flagship-web/rsc-action/actions/server-request"
@@ -1881,11 +1883,19 @@ class LinkedInActions:
         def _build_pag_payload(start_idx: int) -> dict:
             """Build a fresh pagination payload for the given startIndex."""
             payload_inner = {
-                "startIndex": start_idx,
+                "invitationDirectionEnum": "PendingInvitationDirection_SENT",
                 "invitationTypeEnum": ["GenericInvitationType_CONNECTION"],
                 "invitationClassificationTypes": [],
+                "relevantLevels": [],
                 "filterCriteriaEnum": "FilterCriteria_UNKNOWN",
-                "invitationDirectionEnum": "PendingInvitationDirection_SENT",
+                "highlightedInvitationIds": [],
+                "showCleanupBulkFooter": False,
+                "inlineBulkCategory": "Focused",
+                "suggestionsEnabled": False,
+                "paginateSuggestions": False,
+                "invitationPaginationCacheHoldout": False,
+                "phase": "Invitations",
+                "invitationStartIndex": start_idx,
             }
             inner: dict = {
                 "$type": "proto.sdui.actions.requests.RequestedArguments",
@@ -1894,13 +1904,14 @@ class LinkedInActions:
                 "requestMetadata": {"$type": "proto.sdui.common.RequestMetadata"},
                 "states": [],
                 "screenId": "com.linkedin.sdui.flagshipnav.mynetwork.invitations.InvitationSentWithType",
+                "knownTemplateIds": [],
             }
             return {
-                "pagerId": "com.linkedin.sdui.pagers.mynetwork.invitationsList",
+                "pagerId": PAGER_ID,
                 "clientArguments": inner,
                 "paginationRequest": {
                     "$type": "proto.sdui.actions.requests.PaginationRequest",
-                    "pagerId": "com.linkedin.sdui.pagers.mynetwork.invitationsList",
+                    "pagerId": PAGER_ID,
                     "requestedArguments": {
                         "$type": "proto.sdui.actions.requests.RequestedArguments",
                         "payload": payload_inner,
@@ -1911,8 +1922,8 @@ class LinkedInActions:
                         "$case": "itemDistanceTrigger",
                         "itemDistanceTrigger": {
                             "$type": "proto.sdui.actions.requests.ItemDistanceTrigger",
-                            "preloadDistance": 0,
-                            "preloadLength": 10,
+                            "preloadDistance": 3,
+                            "preloadLength": 250,
                         },
                     },
                     "retryCount": 0,
@@ -1956,6 +1967,8 @@ class LinkedInActions:
                     "action.withdraw_pagination_warmup_failed",
                     status=warmup.get("status"),
                     error=warmup.get("error"),
+                    final_url=warmup.get("final_url"),
+                    body=(warmup.get("body") or "")[:600],
                 )
                 raise WithdrawalStopped("LinkedIn pagination failed; no scrolling fallback or automatic retry was attempted.")
             await asyncio.sleep(1.0)

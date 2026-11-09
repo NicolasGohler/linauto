@@ -272,7 +272,7 @@ INVITATION_PENDING_COUNT_JS = """
     for (const el of all) {
         // Only leaf-ish elements whose own text (not descendants combined) contains the pattern
         const text = el.textContent || '';
-        const m = text.match(/^\\s*People\\s*\\((\\d[\\d,]*)\\)\\s*$/i);
+        const m = text.match(/^\\s*People\\s*\\(?\\s*(\\d[\\d,]*)\\s*\\)?\\s*$/i);
         if (m) return parseInt(m[1].replace(/,/g, ''), 10);
     }
     return null;

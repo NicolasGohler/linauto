@@ -69,6 +69,10 @@ def _identities(node):
         for key, value in node.items():
             if key == "invitationId" and str(value).isdigit():
                 ids.add(str(value))
+            elif key == "inviteeVanityName" and isinstance(value, str) and re.fullmatch(r"[\w-]+", value):
+                # New SDUI cards (Nov 2026) keep the slug next to the invitation id
+                # in the withdraw payload instead of in a sibling record.
+                urls.add(profile_url("https://www.linkedin.com/in/" + value))
             child_ids, child_urls = _identities(value)
             ids.update(child_ids)
             urls.update(child_urls)
@@ -85,7 +89,11 @@ def invitation_pairs(body):
     if not isinstance(body, str) or len(body) > 512_000:
         raise WithdrawalStopped("LinkedIn returned an unexpected invitation response; withdrawal stopped.")
     records = response_records(body)
-    ids = list(dict.fromkeys(re.findall(r"InvitationUrn\(invitationId=(\d+)\)", body)))
+    # Old format: InvitationUrn(invitationId=123). New (Nov 2026): {"invitationUrn":{"invitationId":"123"}}
+    ids = list(dict.fromkeys(
+        re.findall(r"InvitationUrn\(invitationId=(\d+)\)", body)
+        + re.findall(r'"invitationId"\s*:\s*"?(\d+)"?', body)
+    ))
     pairs = {}
     for record in records:
         for obj in _objects(record):
@@ -114,6 +122,16 @@ def withdrawal_receipt(body, invitation_id):
         for obj in _objects(record):
             if obj.get("error") or obj.get("success") is False:
                 return False
+            if obj.get("errors"):
+                return False
+            # New SDUI reply (Nov 2026) does not echo the id: it returns an empty
+            # errors list plus a success toast reading "Invitation withdrawn.".
+            if (
+                obj.get("$type") == "proto.sdui.responses.ServerRequestResponse"
+                and obj.get("errors") == []
+                and re.search(r'"ToastPresetCategory_SUCCESS"\s*,\s*"text"\s*:\s*\[\s*"Invitation withdrawn\.?"', body)
+            ):
+                acknowledged = True
             ids, _ = _identities(obj)
             if ids == {str(invitation_id)} and (
                 obj.get("success") is True

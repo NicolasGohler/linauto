@@ -236,7 +236,7 @@ class LinkedInNavigator:
             () => {
                 const all = document.querySelectorAll('a, li, span, button, [role="tab"]');
                 for (const el of all) {
-                    if (/^People\\s*\\(/.test((el.textContent || '').trim())) return el;
+                    if (/^People\\s*\\(?\\s*\\d/.test((el.textContent || '').trim())) return el;
                 }
                 return null;
             }
