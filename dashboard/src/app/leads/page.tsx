@@ -1,6 +1,11 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
+import * as api from "@/lib/api";
+import { isLinkedInProfileUrl } from "@/lib/query-cache";
 import {
   useGlobalLeads,
   useLeadLists,
@@ -12,6 +17,7 @@ import {
   useBulkSkipLeads,
   useBulkRemoveLeads,
   useBulkRequeueLeads,
+  prefetchLeadPage,
 } from "@/hooks/use-queries";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
@@ -185,7 +191,36 @@ function useDebounce<T>(value: T, delay: number): T {
 export default function GlobalLeadsPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
-  const debouncedSearch = useDebounce(search, 300);
+  // A pasted LinkedIn URL is a lookup, not typing: search right away.
+  const debouncedSearch = useDebounce(search, isLinkedInProfileUrl(search) ? 0 : 300);
+  const router = useRouter();
+  const qc = useQueryClient();
+
+  function openLead(id: string) {
+    void prefetchLeadPage(qc, id);
+    router.push(`/leads/${id}`);
+  }
+
+  // Pasting a LinkedIn profile URL opens that lead directly. The exact-URL
+  // lookup is much cheaper than the full search, and the lead page draws from
+  // the lookup result while its full record loads.
+  async function handleSearchPaste(e: React.ClipboardEvent<HTMLInputElement>) {
+    const text = e.clipboardData.getData("text").trim();
+    if (!isLinkedInProfileUrl(text)) return;
+    try {
+      const lead = await api.lookupLeadByUrl(text);
+      qc.setQueryData(["lead-lookup", lead.id], lead);
+      openLead(lead.id);
+    } catch {
+      // Not in the database: the list search below shows the empty result.
+    }
+  }
+
+  function handleSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key !== "Enter") return;
+    const items = leadsData?.items ?? [];
+    if (items.length === 1) openLead(items[0].id);
+  }
   const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set(DEFAULT_STATUSES));
   const [listFilter, setListFilter] = useState<Set<string>>(new Set());
   const [campaignFilter, setCampaignFilter] = useState<string | undefined>();
@@ -303,6 +338,8 @@ export default function GlobalLeadsPage() {
           placeholder="Search leads..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          onPaste={handleSearchPaste}
+          onKeyDown={handleSearchKeyDown}
           className="max-w-xs"
         />
         <MultiSelectFilter
@@ -470,9 +507,9 @@ export default function GlobalLeadsPage() {
                           </td>
                           <td className="py-2">
                             <div className="flex items-center gap-0.5">
-                              <a href={`/leads/${lead.id}`} className="font-medium hover:underline">
+                              <Link href={`/leads/${lead.id}`} className="font-medium hover:underline">
                                 {[lead.first_name, lead.last_name].filter(Boolean).join(" ") || "—"}
-                              </a>
+                              </Link>
                               {lead.email && <EmailCopyButton email={lead.email} />}
                               {lead.twitter_url && (
                                 <SocialIconLink href={lead.twitter_url} label={`X: ${lead.twitter_url}`}>

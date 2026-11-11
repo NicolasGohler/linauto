@@ -1,10 +1,13 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import { clearPersistedQueryCache } from "@/lib/query-cache";
 
 function LoginForm() {
   const params = useSearchParams();
+  // Landing here means logged out or session expired: drop any saved data.
+  useEffect(() => { clearPersistedQueryCache(); }, []);
   // Only allow same-site relative paths (blocks open redirects via ?next=).
   const rawNext = params.get("next") ?? "/";
   const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/";

@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import * as api from "@/lib/api";
+import type { Lead } from "@/lib/types";
 
 // ── Accounts ──────────────────────────────────────────────────────────────
 
@@ -514,12 +515,43 @@ export function useUnarchiveCampaign() {
 
 // ── Single Lead ───────────────────────────────────────────────────────────
 
+// Any list query whose rows are leads. A row there is enough to draw the lead
+// page at once while the full record (lists, campaigns) loads.
+const LEAD_ROW_ROOTS = ["global-leads", "leads", "lead-list-leads", "lead-lookup"];
+
+function findCachedLead(qc: ReturnType<typeof useQueryClient>, id: string): Lead | undefined {
+  for (const root of LEAD_ROW_ROOTS) {
+    for (const [, data] of qc.getQueriesData<unknown>({ queryKey: [root] })) {
+      if (!data || typeof data !== "object") continue;
+      const rows = (data as { items?: Lead[] }).items;
+      if (Array.isArray(rows)) {
+        const hit = rows.find((l) => l?.id === id);
+        if (hit) return hit;
+      } else if ((data as Lead).id === id) {
+        return data as Lead;
+      }
+    }
+  }
+  return undefined;
+}
+
 export function useLead(id: string) {
+  const qc = useQueryClient();
   return useQuery({
     queryKey: ["lead", id],
     queryFn: () => api.fetchLead(id),
     enabled: !!id,
+    placeholderData: () => findCachedLead(qc, id),
   });
+}
+
+/** Warm the three queries the lead page needs, so opening it is instant. */
+export function prefetchLeadPage(qc: ReturnType<typeof useQueryClient>, id: string) {
+  return Promise.all([
+    qc.prefetchQuery({ queryKey: ["lead", id], queryFn: () => api.fetchLead(id) }),
+    qc.prefetchQuery({ queryKey: ["lead-activity", id], queryFn: () => api.fetchLeadActivity(id) }),
+    qc.prefetchQuery({ queryKey: ["lead-notes", id], queryFn: () => api.fetchLeadNotes(id) }),
+  ]);
 }
 
 export function useUpdateLead(id: string) {

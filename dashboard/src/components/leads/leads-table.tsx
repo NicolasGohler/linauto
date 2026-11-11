@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {
   Table,
   TableBody,
@@ -477,9 +478,9 @@ export function LeadsTable({ campaignId, timezone, assignedLists, campaignName }
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-0.5">
-                      <a href={`/leads/${lead.id}`} className="text-sm font-medium hover:underline">
+                      <Link href={`/leads/${lead.id}`} className="text-sm font-medium hover:underline">
                         {[lead.first_name, lead.last_name].filter(Boolean).join(" ") || "—"}
-                      </a>
+                      </Link>
                       {lead.email && <EmailCopyButton email={lead.email} />}
                       {lead.twitter_url && (
                         <SocialIconLink href={lead.twitter_url} label={`X: ${lead.twitter_url}`}>
