@@ -856,6 +856,10 @@ export default function LeadDetailPage() {
   const canRequeue = lead.status === "error" || lead.status === "skipped" || lead.status === "withdrawn";
   const isRemoved = lead.status === "removed";
 
+  const companyXRaw = lead.extra_data?.company_x_url;
+  const companyX = typeof companyXRaw === "string" && companyXRaw ? companyXRaw : null;
+  const extraEntries = Object.entries(lead.extra_data ?? {}).filter(([k]) => k !== "company_x_url");
+
   const twitterHandle = lead.twitter_url
     ? lead.twitter_url.replace(/.*x\.com\//, "").replace(/.*twitter\.com\//, "")
     : null;
@@ -1077,6 +1081,16 @@ export default function LeadDetailPage() {
               }}
             />
 
+            {/* Company / project X account, kept apart from the person's own */}
+            {companyX && (
+              <div className="flex gap-2 text-sm">
+                <span className="text-muted-foreground min-w-[120px]">Company X</span>
+                <a href={companyX} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                  @{companyX.replace(/.*(x|twitter)\.com\//, "")}
+                </a>
+              </div>
+            )}
+
             {/* Telegram — prominent with Find button + outreach toggle */}
             <TelegramSection
               lead={lead}
@@ -1090,11 +1104,11 @@ export default function LeadDetailPage() {
           </div>
 
           {/* Extra data if any */}
-          {lead.extra_data && Object.keys(lead.extra_data).length > 0 && (
+          {extraEntries.length > 0 && (
             <div className="rounded-xl border bg-card p-4">
               <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Additional Data</h2>
               <div className="space-y-1.5">
-                {Object.entries(lead.extra_data).map(([k, v]) => (
+                {extraEntries.map(([k, v]) => (
                   <div key={k} className="flex gap-2 text-sm">
                     <span className="text-muted-foreground min-w-[120px] capitalize">{k.replace(/_/g, " ")}</span>
                     <ExtraDataValue value={String(v)} />
