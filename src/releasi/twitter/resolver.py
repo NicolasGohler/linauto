@@ -5,10 +5,17 @@ Mirrors telegram/resolver.py, with a different engine underneath. A handle
 merely existing on X proves nothing, so every candidate is scored against the
 person's profile evidence: display name, bio, profile website and handle.
 
-Passes (stops early on a confident match):
-  Pass 1 — custom LinkedIn vanity slug as a handle
-  Pass 2 — X user search for the person's full name (up to 20 profiles)
-  Pass 3 — generated name + company handle patterns
+Passes, cheapest first (stops early on a confident match). Order and patterns
+come from 134 known handles in the DB (Nov 2026): LinkedIn slug 30%,
+firstlast/first_last 27%, flast 7%, lastfirst 3%, company in handle only 4%,
+and 54% not guessable at all (only a display-name search finds those).
+  Pass 1 — LinkedIn vanity slug as a handle                     (~15-18 credits)
+  Pass 2 — name handle patterns: firstlast, first_last, flast,
+           lastfirst (case-insensitive, no company patterns)    (~15-18 each)
+  Pass 3 — X user search on "First Last"; full profile lookup only
+           for results matching first AND last name (max 3)     (~360 + 18 each)
+  Pass 4 — X user search on "First Company", only when Pass 3
+           returned no full-name match ("Ana | Acme" display names)
 
 Scoring:
   name      first + last in display name = 3, first only = 1, neither = reject
@@ -38,7 +45,6 @@ import structlog
 
 from releasi.telegram.resolver import (
     extract_linkedin_slug,
-    generate_name_candidates,
     get_company_shorthands,
 )
 
@@ -124,9 +130,23 @@ def linkedin_slug_x_candidate(linkedin_url: Optional[str]) -> Optional[str]:
     return core if _HANDLE_RE.match(core or "") else None
 
 
-def x_name_candidates(name: str, company: Optional[str]) -> list[str]:
-    """Telegram name patterns, filtered to valid X handles (max 15 chars)."""
-    return [c for c in generate_name_candidates(name, company) if _HANDLE_RE.match(c)]
+def x_name_candidates(name: str) -> list[str]:
+    """Name-only handle patterns, in order of observed frequency on X.
+
+    No company patterns: only 4% of known handles contain the company and
+    those people are found by the name search anyway.
+    """
+    parts = (name or "").strip().split()
+    if len(parts) < 2:
+        return []
+    f, l = _alnum(parts[0]), _alnum(parts[-1])
+    if not f or not l:
+        return []
+    out: list[str] = []
+    for c in (f + l, f"{f}_{l}", f[0] + l, l + f):
+        if _HANDLE_RE.match(c) and c not in out:
+            out.append(c)
+    return out
 
 
 def _profile_from_info(data: dict) -> dict:
@@ -244,8 +264,7 @@ async def find_x(
     title: Optional[str] = None,
     extra_data: Optional[dict] = None,
     exclude_usernames: Optional[list[str]] = None,
-    max_candidates: int = 8,
-    max_enrich: int = 5,
+    max_enrich: int = 3,
     sleep_between: float = 0.2,
 ) -> XFindResult:
     """Resolve the most likely personal X handle for a person."""
@@ -265,7 +284,7 @@ async def find_x(
     )
 
     scored: dict[str, tuple[float, dict]] = {}
-    enriched: set[str] = set()
+    full_name_hit = False
 
     def consider(profile: Optional[dict], source: str) -> Optional[float]:
         if not profile or not profile.get("username"):
@@ -285,54 +304,59 @@ async def find_x(
     async with httpx.AsyncClient(timeout=20) as client:
         api = _Api(client, api_key, result)
 
+        tried: set[str] = set(exclude)
+
+        def confident() -> bool:
+            return bool(scored) and max(v[0] for v in scored.values()) >= CONFIDENT_SCORE
+
+        async def lookup(handle: str, source: str) -> None:
+            key = handle.lower()
+            if key in tried or result.rate_limited:
+                return
+            tried.add(key)
+            if result.api_calls:
+                await asyncio.sleep(sleep_between)
+            consider(await api.user_info(handle), source)
+
         # Pass 1 — LinkedIn vanity slug
         slug = linkedin_slug_x_candidate(linkedin_url)
-        if slug and slug.lower() not in exclude:
+        if slug:
             result.logs.append(f"[Pass 1] LinkedIn slug → @{slug}")
-            s = consider(await api.user_info(slug), "linkedin slug")
-            if s is not None and s >= CONFIDENT_SCORE:
+            await lookup(slug, "linkedin slug")
+            if confident():
                 return _finish(result, scored)
 
-        # Pass 2 — name search; enrich the best name matches with full profile info
-        result.logs.append(f"[Pass 2] X user search: \"{first} {last}\"")
-        # Each search bills per profile returned (~20), so the company search
-        # only runs when the plain name search found nothing confident.
-        queries = [f"{first} {last}"]
+        # Pass 2 — name handle patterns
+        patterns = [c for c in x_name_candidates(name) if c.lower() not in tried]
+        if patterns:
+            result.logs.append(f"[Pass 2] Handle patterns: {', '.join(patterns)}")
+        for c in patterns:
+            await lookup(c, f"pattern '{c}'")
+            if confident():
+                return _finish(result, scored)
+
+        # Pass 3 — name search; Pass 4 — company search only if no full-name hit
+        queries = [("Pass 3", f"{first} {last}")]
         if shorthands:
-            # People often brand their display name with the company ("Ana | Acme")
-            queries.append(f"{first} {shorthands[0]}")
-        for qi, query in enumerate(queries):
-            if qi:
-                result.logs.append(f"[Pass 2b] X user search: \"{query}\"")
-                await asyncio.sleep(sleep_between)
-            name_matches = []
-            for p in await api.user_search(query):
-                s = consider(p, "search")
-                if s is not None:
-                    name_matches.append((s, p))
-            name_matches.sort(key=lambda x: -x[0])
-            for _, p in name_matches[:max_enrich]:
-                if p["username"].lower() in enriched:
-                    continue
-                enriched.add(p["username"].lower())
-                await asyncio.sleep(sleep_between)
-                consider(await api.user_info(p["username"]), "profile")
-            if scored and max(v[0] for v in scored.values()) >= CONFIDENT_SCORE:
-                return _finish(result, scored)
-
-        # Pass 3 — handle patterns
-        cands = [c for c in x_name_candidates(name, company) if c.lower() not in exclude and c.lower() not in scored]
-        cands = cands[:max_candidates]
-        if cands:
-            result.logs.append(f"[Pass 3] Trying {len(cands)} handle patterns…")
-        for c in cands:
+            queries.append(("Pass 4", f"{first} {shorthands[0]}"))
+        for label, query in queries:
             if result.rate_limited:
-                result.logs.append("Rate limited by twitterapi.io, stopping")
                 break
+            if label == "Pass 4" and full_name_hit:
+                break
+            result.logs.append(f"[{label}] X user search: \"{query}\"")
             await asyncio.sleep(sleep_between)
-            s = consider(await api.user_info(c), f"pattern '{c}'")
-            if s is not None and s >= CONFIDENT_SCORE:
-                break
+            matches = []
+            for p in await api.user_search(query):
+                sc = consider(p, "search")
+                if sc is not None and sc >= MIN_ALT_SCORE:  # first AND last name matched
+                    matches.append((sc, p))
+                    full_name_hit = True
+            matches.sort(key=lambda x: -x[0])
+            for _, p in matches[:max_enrich]:
+                await lookup(p["username"], "profile")
+            if confident():
+                return _finish(result, scored)
 
     return _finish(result, scored)
 
