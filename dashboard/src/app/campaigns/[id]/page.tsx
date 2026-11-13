@@ -369,9 +369,6 @@ export default function CampaignDetailPage({
   const [editFollowupMsg3, setEditFollowupMsg3] = useState("");
   const [editWeekendEnabled, setEditWeekendEnabled] = useState(false);
   const [editStep2Delay, setEditStep2Delay] = useState("");
-  const [editSampleOn, setEditSampleOn] = useState(false);
-  const [editSampleCount, setEditSampleCount] = useState("3");
-  const [sampleDirty, setSampleDirty] = useState(false);
   const [settingsInit, setSettingsInit] = useState(false);
   // Shared variable bar inserts into whichever message field was focused last.
   const connEditorRef = useRef<MessageTemplateEditorHandle>(null);
@@ -429,8 +426,6 @@ export default function CampaignDetailPage({
     setEditFollowupMsg3(campaign.followup_message_3 ?? "");
     setEditWeekendEnabled(campaign.weekend_enabled);
     setEditStep2Delay(String(campaign.followup_step2_delay_hours ?? 0));
-    setEditSampleOn(campaign.followup_sample_remaining != null);
-    setEditSampleCount(String(campaign.followup_sample_remaining ?? 3));
     setSettingsInit(true);
   }
 
@@ -472,11 +467,6 @@ export default function CampaignDetailPage({
     if (editWeekendEnabled !== campaign!.weekend_enabled) data.weekend_enabled = editWeekendEnabled;
     const step2 = editStep2Delay ? Number(editStep2Delay) : 0;
     if (step2 !== (campaign!.followup_step2_delay_hours ?? 0)) data.followup_step2_delay_hours = step2;
-    // The server counts the sample down as sequences start, so only send it
-    // when the user actually changed it here.
-    if (sampleDirty) {
-      data.followup_sample_remaining = editSampleOn ? Math.max(0, Number(editSampleCount) || 0) : null;
-    }
     // Re-planning queues a connection request right away, so only do it when
     // something that affects connection sending changed.
     const affectsConnections = ["connection_message_template", "filter_no_photo",
@@ -505,7 +495,6 @@ export default function CampaignDetailPage({
     updateCampaign.mutate(data, {
       onSuccess: () => {
         toast.success("Campaign settings saved");
-        setSampleDirty(false);
         if (campaign?.account_id && affectsConnections) {
           replanAccount(campaign.account_id).then(() =>
             toast.success("Schedule regenerated (1 lead queued immediately)")
@@ -1169,62 +1158,6 @@ export default function CampaignDetailPage({
                         </p>
                       </div>
 
-                  {/* Sample mode */}
-                  <div className="mt-5 rounded-md border border-border p-3 space-y-2">
-                    <div className="flex flex-wrap items-center gap-2 text-sm">
-                      <label className="flex items-center gap-2 font-medium">
-                        <input
-                          type="checkbox"
-                          checked={editSampleOn}
-                          onChange={(e) => { setEditSampleOn(e.target.checked); setSampleDirty(true); }}
-                        />
-                        Test on a sample first
-                      </label>
-                      {editSampleOn && (
-                        <span className="flex items-center gap-2 text-muted-foreground">
-                          start
-                          <Input
-                            type="number"
-                            min="0"
-                            value={editSampleCount}
-                            onChange={(e) => { setEditSampleCount(e.target.value); setSampleDirty(true); }}
-                            className="h-7 w-16"
-                          />
-                          sequences, then pause new ones
-                        </span>
-                      )}
-                    </div>
-                    {campaign.followup_sample_remaining != null && !sampleDirty && (
-                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                        <span className={campaign.followup_sample_remaining === 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}>
-                          {campaign.followup_sample_remaining === 0
-                            ? "Sample used up. New follow-ups are paused; you get a Slack ping when the last sample sequence finishes."
-                            : `${campaign.followup_sample_remaining} more ${campaign.followup_sample_remaining === 1 ? "sequence" : "sequences"} will start before follow-ups pause.`}
-                        </span>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7"
-                          disabled={updateCampaign.isPending}
-                          onClick={() =>
-                            updateCampaign.mutate(
-                              { followup_sample_remaining: null },
-                              {
-                                onSuccess: () => {
-                                  setEditSampleOn(false);
-                                  setSampleDirty(false);
-                                  toast.success("Sample ended. Waiting follow-ups are spread over the next 6 hours.");
-                                },
-                                onError: (err) => toast.error(err.message),
-                              }
-                            )
-                          }
-                        >
-                          End sample, resume all
-                        </Button>
-                      </div>
-                    )}
-                  </div>
                 </CardContent>
               </Card>
 
