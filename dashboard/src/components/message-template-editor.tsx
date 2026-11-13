@@ -25,6 +25,8 @@ const STANDARD_VARIABLES: Array<{
   { token: "title",      description: "Lead's job title",  example: "Head of Growth" },
 ];
 
+const LOW_FILL_THRESHOLD = 0.1;
+
 const EXAMPLE_BY_TOKEN = Object.fromEntries(STANDARD_VARIABLES.map(v => [v.token, v.example]));
 
 export interface MessageTemplateEditorProps {
@@ -123,6 +125,7 @@ export const MessageTemplateEditor = forwardRef<
 ) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [cursor, setCursor] = useState<number | null>(null);
+  const [showLowFill, setShowLowFill] = useState(false);
 
   function insertAtCursor(text: string) {
     const ta = textareaRef.current;
@@ -171,6 +174,19 @@ export const MessageTemplateEditor = forwardRef<
     .filter(Boolean)
     .filter((t) => !STANDARD_VARIABLES.some((v) => v.token === t));
 
+  // Variables filled for under 10% of leads are hidden unless the user expands
+  // them or the template already uses them.
+  const isLowFill = (token: string) =>
+    !!fillRates &&
+    fillRates[token] !== undefined &&
+    fillRates[token] < LOW_FILL_THRESHOLD &&
+    !value.toLowerCase().includes(`{{${token}}}`);
+  const visibleStandard = STANDARD_VARIABLES.filter((v) => showLowFill || !isLowFill(v.token));
+  const visibleCustom = customChips.filter((t) => showLowFill || !isLowFill(t));
+  const hiddenCount =
+    STANDARD_VARIABLES.filter((v) => isLowFill(v.token)).length +
+    customChips.filter((t) => isLowFill(t)).length;
+
   const previewSegs = value.trim() ? buildPreview(value, fillRates, customVariableExamples) : null;
 
   function FillRateBadge({ token }: { token: string }) {
@@ -198,7 +214,7 @@ export const MessageTemplateEditor = forwardRef<
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="text-xs text-muted-foreground mr-1">Insert:</span>
         <TooltipProvider delayDuration={150}>
-          {STANDARD_VARIABLES.map((v) => {
+          {visibleStandard.map((v) => {
             const isZero = fillRates?.[v.token] === 0;
             return (
               <Tooltip key={v.token}>
@@ -238,7 +254,7 @@ export const MessageTemplateEditor = forwardRef<
               </Tooltip>
             );
           })}
-          {customChips.map((token) => {
+          {visibleCustom.map((token) => {
             const isZero = fillRates?.[token] === 0;
             return (
               <Tooltip key={token}>
@@ -279,6 +295,15 @@ export const MessageTemplateEditor = forwardRef<
             );
           })}
         </TooltipProvider>
+        {hiddenCount > 0 && (
+          <button
+            type="button"
+            className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+            onClick={() => setShowLowFill((v) => !v)}
+          >
+            {showLowFill ? "Hide low-fill" : `+${hiddenCount} under 10% fill`}
+          </button>
+        )}
       </div>
 
       {/* Textarea */}
