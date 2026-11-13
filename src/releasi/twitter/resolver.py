@@ -72,6 +72,7 @@ class XFindResult:
     logs: list[str] = field(default_factory=list)
     api_calls: int = 0
     rate_limited: bool = False
+    best_profile: dict = field(default_factory=dict)        # {name, bio, can_dm} of best_match
 
 
 # ---------------------------------------------------------------------------
@@ -149,6 +150,14 @@ def x_name_candidates(name: str) -> list[str]:
     return out
 
 
+def _can_dm(d: dict) -> Optional[bool]:
+    """X's open-DM flag as reported by twitterapi.io; None when the payload lacks it."""
+    for k in ("canDm", "can_dm"):
+        if isinstance(d.get(k), bool):
+            return d[k]
+    return None
+
+
 def _profile_from_info(data: dict) -> dict:
     urls = []
     ent = data.get("entities") or {}
@@ -163,6 +172,7 @@ def _profile_from_info(data: dict) -> dict:
         "urls": urls,
         "location": data.get("location") or "",
         "followers": data.get("followers") or data.get("followers_count") or 0,
+        "can_dm": _can_dm(data),
     }
 
 
@@ -174,6 +184,7 @@ def _profile_from_search(u: dict) -> dict:
         "urls": [u["url"]] if u.get("url") else [],
         "location": u.get("location") or "",
         "followers": u.get("followers_count") or 0,
+        "can_dm": _can_dm(u),
     }
 
 
@@ -367,6 +378,11 @@ def _finish(result: XFindResult, scored: dict[str, tuple[float, dict]]) -> XFind
         best_s, best_p = ranked[0]
         result.best_match = best_p["username"]
         result.best_score = best_s
+        result.best_profile = {
+            "name": best_p.get("name") or "",
+            "bio": (best_p.get("bio") or "")[:160],
+            "can_dm": best_p.get("can_dm"),
+        }
         ranked = ranked[1:]
         result.logs.append(f"Best match: @{result.best_match} (score={best_s:.1f})")
     else:
@@ -377,6 +393,7 @@ def _finish(result: XFindResult, scored: dict[str, tuple[float, dict]]) -> XFind
             "score": round(s, 1),
             "name": p.get("name") or "",
             "bio": (p.get("bio") or "")[:160],
+            "can_dm": p.get("can_dm"),
         }
         for s, p in ranked
         if s >= MIN_ALT_SCORE

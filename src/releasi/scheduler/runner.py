@@ -2485,7 +2485,7 @@ async def x_enrichment_sweep():
                 return
             candidates = []
             if result.best_match:
-                candidates.append({"username": result.best_match, "score": round(result.best_score or 0, 1), "confident": True})
+                candidates.append({"username": result.best_match, "score": round(result.best_score or 0, 1), **result.best_profile, "confident": True})
             candidates.extend(result.alternatives)
             await repo.log_lead_event(
                 lead_id=lead_id,

@@ -657,6 +657,13 @@ function XSection({ lead, onSave, onToggleContacted }: XSectionProps) {
               >
                 <span className="font-medium">@{c.username}</span>
                 {c.name && <span className="text-muted-foreground truncate">{c.name}</span>}
+                {c.can_dm != null && (
+                  <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                    c.can_dm ? "bg-sky-500/15 text-sky-600 dark:text-sky-400" : "bg-zinc-500/15 text-muted-foreground"
+                  }`} title="X reports whether this account accepts DMs from you">
+                    {c.can_dm ? "DM open" : "DM closed"}
+                  </span>
+                )}
                 <span className={`ml-auto shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
                   c.confident || c.score >= 5 ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
                 }`}>

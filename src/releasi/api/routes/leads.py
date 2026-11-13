@@ -1107,7 +1107,7 @@ async def start_find_x(lead_id: str, repo: Repository = Depends(get_repo)):
             r = await find_x(api_key=settings.twitterapi_key, exclude_usernames=exclude, **snapshot)
             candidates = []
             if r.best_match:
-                candidates.append({"username": r.best_match, "score": round(r.best_score or 0, 1), "confident": True})
+                candidates.append({"username": r.best_match, "score": round(r.best_score or 0, 1), **r.best_profile, "confident": True})
             candidates.extend(r.alternatives)
             task.update(status="done", x_username=r.best_match, x_score=r.best_score,
                         x_alternatives=candidates, logs=r.logs)

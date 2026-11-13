@@ -275,6 +275,7 @@ export interface XCandidate {
   score: number;
   name?: string;
   bio?: string;
+  can_dm?: boolean | null;
   confident?: boolean;
 }
 
