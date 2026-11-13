@@ -1786,11 +1786,13 @@ class Repository:
         name: str,
         csv_filename: str | None = None,
         tg_enrich_enabled: bool = True,
+        x_enrich_enabled: bool = False,
     ) -> LeadList:
         lead_list = LeadList(
             name=name,
             csv_filename=csv_filename,
             tg_enrich_enabled=tg_enrich_enabled,
+            x_enrich_enabled=x_enrich_enabled,
         )
         self.session.add(lead_list)
         await self.session.commit()
@@ -2470,6 +2472,7 @@ class Repository:
         has_twitter: Optional[bool] = None,
         has_email: Optional[bool] = None,
         tg_contacted: Optional[bool] = None,
+        x_contacted: Optional[bool] = None,
         include_archived: bool = False,
     ) -> tuple:
         """Return (leads, total_count) across all lists/campaigns."""
@@ -2635,6 +2638,13 @@ class Repository:
             stmt = stmt.where(Lead.tg_contacted_at.is_(None))
             count_stmt = count_stmt.where(Lead.tg_contacted_at.is_(None))
 
+        if x_contacted is True:
+            stmt = stmt.where(Lead.x_contacted_at.isnot(None))
+            count_stmt = count_stmt.where(Lead.x_contacted_at.isnot(None))
+        elif x_contacted is False:
+            stmt = stmt.where(Lead.x_contacted_at.is_(None))
+            count_stmt = count_stmt.where(Lead.x_contacted_at.is_(None))
+
         total = (await self.session.execute(count_stmt)).scalar_one()
 
         _SORT_COLS = {
@@ -2681,6 +2691,9 @@ class Repository:
                     case((Lead.twitter_url.isnot(None), 1), else_=0)
                 ).label("twitter_count"),
                 func.sum(
+                    case((Lead.x_contacted_at.isnot(None), 1), else_=0)
+                ).label("x_contacted_count"),
+                func.sum(
                     case((Lead.status == LeadStatus.CONNECTED.value, 1), else_=0)
                 ).label("connected_count"),
                 func.sum(
@@ -2711,6 +2724,7 @@ class Repository:
             "email_coverage": pct(row.email_count or 0, total),
             "twitter_coverage": pct(row.twitter_count or 0, total),
             "tg_contacted_rate": pct(row.tg_contacted_count or 0, tg_count),
+            "x_contacted_rate": pct(row.x_contacted_count or 0, row.twitter_count or 0),
         }
 
     async def log_lead_event(
@@ -2872,6 +2886,66 @@ class Repository:
             "searched_count": searched_count,
             "found_count": found_count,
         }
+
+    # ── X (Twitter) enrichment sweep ─────────────────────────────────────
+
+    def _x_sweep_eligibility(self):
+        already_searched = (
+            select(LeadEvent.id)
+            .where(LeadEvent.lead_id == Lead.id)
+            .where(LeadEvent.event_type == "x_sweep_searched")
+            .exists()
+        )
+        legacy_enabled = (
+            select(LeadList.id)
+            .where(LeadList.id == Lead.lead_list_id)
+            .where(LeadList.x_enrich_enabled == True)  # noqa: E712
+            .exists()
+        )
+        membership_enabled = (
+            select(LeadListMembership.lead_list_id)
+            .join(LeadList, LeadList.id == LeadListMembership.lead_list_id)
+            .where(LeadListMembership.lead_id == Lead.id)
+            .where(LeadList.x_enrich_enabled == True)  # noqa: E712
+            .exists()
+        )
+        return [
+            or_(Lead.twitter_url.is_(None), Lead.twitter_url == ""),
+            not_(already_searched),
+            or_(legacy_enabled, membership_enabled),
+            Lead.first_name.isnot(None),
+            Lead.last_name.isnot(None),
+        ]
+
+    async def get_next_lead_for_x_sweep(self) -> Optional[Lead]:
+        """Next lead to enrich with an X handle, or None.
+
+        Eligible: no personal twitter_url yet, never searched by the X sweep,
+        in a list with x_enrich_enabled=True, and has a first and last name.
+        Newest imports first.
+        """
+        stmt = (
+            select(Lead)
+            .where(*self._x_sweep_eligibility())
+            .order_by(Lead.created_at.desc())
+            .limit(1)
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def get_x_sweep_stats(self) -> dict:
+        pending = (await self.session.execute(
+            select(func.count()).select_from(Lead).where(*self._x_sweep_eligibility())
+        )).scalar_one()
+        searched = (await self.session.execute(
+            select(func.count(func.distinct(LeadEvent.lead_id)))
+            .where(LeadEvent.event_type == "x_sweep_searched")
+        )).scalar_one()
+        found = (await self.session.execute(
+            select(func.count(func.distinct(LeadEvent.lead_id)))
+            .where(LeadEvent.event_type == "x_found")
+            .where(func.json_extract(LeadEvent.details, "$.source") == "sweep")
+        )).scalar_one()
+        return {"pending_count": pending, "searched_count": searched, "found_count": found}
 
     async def get_recent_tg_sweep_results(self, limit: int = 20) -> list:
         """Return the last `limit` tg_sweep_searched events with lead info."""

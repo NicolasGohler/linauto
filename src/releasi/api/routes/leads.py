@@ -15,6 +15,7 @@ from releasi.api.schemas import (
     BulkLeadRequest, BulkLeadResponse,
     LeadUpdateRequest, LeadActivityOut,
     FindTelegramTaskOut,
+    FindXTaskOut,
     LeadNoteOut, LeadNoteCreate, LeadNoteUpdate,
     LeadListRef, CampaignRef,
 )
@@ -25,6 +26,8 @@ router = APIRouter(dependencies=[Depends(require_api_key)])
 # In-memory task store for find-telegram background jobs.
 # { task_id: {status, telegram_username, telegram_alternatives, logs, error} }
 _find_tg_tasks: dict[str, dict] = {}
+# { task_id: {status, x_username, x_score, x_alternatives, logs, error} }
+_find_x_tasks: dict[str, dict] = {}
 
 
 @router.get("/campaigns/{campaign_id}/leads", response_model=LeadPage)
@@ -493,6 +496,7 @@ async def list_leads_global(
     has_twitter: Optional[bool] = Query(None),
     has_email: Optional[bool] = Query(None),
     tg_contacted: Optional[bool] = Query(None),
+    x_contacted: Optional[bool] = Query(None),
     include_archived: bool = Query(False),
     repo: Repository = Depends(get_repo),
 ):
@@ -514,6 +518,7 @@ async def list_leads_global(
         has_twitter=has_twitter,
         has_email=has_email,
         tg_contacted=tg_contacted,
+        x_contacted=x_contacted,
         include_archived=include_archived,
     )
 
@@ -642,7 +647,16 @@ async def update_lead_profile(
 
     if "twitter_url" in body.model_fields_set:
         raw = body.twitter_url
-        updates["twitter_url"] = normalize_twitter_url(raw) if raw else None
+        old_twitter = lead.twitter_url
+        new_twitter = normalize_twitter_url(raw) if raw else None
+        updates["twitter_url"] = new_twitter
+        if new_twitter:
+            updates["x_alternatives"] = None  # choice made
+            await repo.log_lead_event(lead_id, "x_saved", {"url": new_twitter}, actor_user_id=actor_user_id)
+            await repo.session.commit()
+        elif old_twitter:
+            await repo.log_lead_event(lead_id, "x_removed", {"url": old_twitter}, actor_user_id=actor_user_id)
+            await repo.session.commit()
 
     if "telegram_username" in body.model_fields_set:
         raw = body.telegram_username
@@ -670,6 +684,17 @@ async def update_lead_profile(
             updates["tg_contacted_at"] = None
             await repo.log_lead_event(lead_id, "tg_contacted_cleared", {}, actor_user_id=actor_user_id)
             await repo.session.commit()
+
+    if "x_contacted" in body.model_fields_set:
+        from datetime import datetime as _dt
+        if body.x_contacted:
+            now = _dt.utcnow()
+            updates["x_contacted_at"] = now
+            await repo.log_lead_event(lead_id, "x_contacted", {"at": now.isoformat()}, actor_user_id=actor_user_id)
+        else:
+            updates["x_contacted_at"] = None
+            await repo.log_lead_event(lead_id, "x_contacted_cleared", {}, actor_user_id=actor_user_id)
+        await repo.session.commit()
 
     if updates:
         lead = await repo.update_lead(lead, **updates)
@@ -1020,6 +1045,105 @@ async def get_find_telegram_status(lead_id: str, task_id: str):
         status=task.get("status", "running"),
         telegram_username=task.get("telegram_username"),
         telegram_alternatives=task.get("telegram_alternatives") or [],
+        logs=task.get("logs") or [],
+        error=task.get("error"),
+    )
+
+
+# ── Find X ───────────────────────────────────────────────────────────
+
+async def _removed_x_handles(repo: Repository, lead_id: str) -> list[str]:
+    """Handles the user previously removed from this lead; never suggest them again."""
+    from sqlalchemy import select as _select
+    from releasi.db.models import LeadEvent as _LeadEvent
+    from releasi.twitter.resolver import extract_x_username
+    q = await repo.session.execute(
+        _select(_LeadEvent).where(_LeadEvent.lead_id == lead_id, _LeadEvent.event_type == "x_removed")
+    )
+    out: list[str] = []
+    for ev in q.scalars().all():
+        h = extract_x_username((ev.details or {}).get("url"))
+        if h:
+            out.append(h)
+    return out
+
+
+@router.post("/leads/{lead_id}/find-x", response_model=FindXTaskOut)
+async def start_find_x(lead_id: str, repo: Repository = Depends(get_repo)):
+    """Start a background task to find the personal X handle for a lead.
+
+    Poll GET /leads/{lead_id}/find-x/{task_id}. On completion the scored
+    candidates are persisted to x_alternatives. Like Telegram, the handle is
+    not saved to twitter_url from this endpoint; the user confirms in the UI.
+    """
+    from releasi.config import get_settings
+    from releasi.twitter.resolver import find_x
+
+    settings = get_settings()
+    if not settings.twitterapi_key:
+        raise HTTPException(status_code=503, detail="X lookup not configured. Set RELEASI_TWITTERAPI_KEY on the server.")
+
+    lead = await repo.get_lead_by_id(lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if not (lead.first_name and lead.last_name):
+        raise HTTPException(status_code=422, detail="Lead needs a first and last name to search X")
+
+    exclude = await _removed_x_handles(repo, lead_id)
+    task_id = str(uuid.uuid4())
+    _find_x_tasks[task_id] = {"status": "running", "logs": []}
+    snapshot = dict(
+        name=f"{lead.first_name} {lead.last_name}",
+        company=lead.company,
+        linkedin_url=lead.linkedin_url,
+        email=lead.email,
+        title=lead.title,
+        extra_data=lead.extra_data or {},
+    )
+
+    async def _run() -> None:
+        task = _find_x_tasks[task_id]
+        try:
+            r = await find_x(api_key=settings.twitterapi_key, exclude_usernames=exclude, **snapshot)
+            candidates = []
+            if r.best_match:
+                candidates.append({"username": r.best_match, "score": round(r.best_score or 0, 1), "confident": True})
+            candidates.extend(r.alternatives)
+            task.update(status="done", x_username=r.best_match, x_score=r.best_score,
+                        x_alternatives=candidates, logs=r.logs)
+            from releasi.db.engine import get_session_factory
+            from releasi.db.repository import Repository as Repo
+            async with get_session_factory()() as session:
+                rr = Repo(session)
+                lead_obj = await rr.get_lead_by_id(lead_id)
+                if lead_obj:
+                    await rr.update_lead(lead_obj, x_alternatives=candidates or None)
+                    await rr.log_lead_event(lead_id, "x_found", {
+                        "best_match": r.best_match, "score": r.best_score,
+                        "alternatives": [a["username"] for a in r.alternatives],
+                        "api_calls": r.api_calls, "source": "manual",
+                    })
+                    await session.commit()
+        except Exception as exc:
+            task["status"] = "error"
+            task["error"] = str(exc)
+            task.setdefault("logs", []).append(f"Exception: {exc}")
+
+    asyncio.create_task(_run())
+    return FindXTaskOut(task_id=task_id, status="running")
+
+
+@router.get("/leads/{lead_id}/find-x/{task_id}", response_model=FindXTaskOut)
+async def get_find_x_status(lead_id: str, task_id: str):
+    task = _find_x_tasks.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return FindXTaskOut(
+        task_id=task_id,
+        status=task.get("status", "running"),
+        x_username=task.get("x_username"),
+        x_score=task.get("x_score"),
+        x_alternatives=task.get("x_alternatives") or [],
         logs=task.get("logs") or [],
         error=task.get("error"),
     )

@@ -236,6 +236,7 @@ export default function GlobalLeadsPage() {
   const [hasTwitter, setHasTwitter] = useState<boolean | undefined>();
   const [hasEmail, setHasEmail] = useState<boolean | undefined>();
   const [tgContacted, setTgContacted] = useState<boolean | undefined>();
+  const [xContacted, setXContacted] = useState<boolean | undefined>();
 
   useEffect(() => { setPage(1); }, [debouncedSearch]);
 
@@ -275,6 +276,7 @@ export default function GlobalLeadsPage() {
     has_twitter: hasTwitter,
     has_email: hasEmail,
     tg_contacted: tgContacted,
+    x_contacted: xContacted,
   });
   const deleteLead = useDeleteLead();
   const restoreLead = useRestoreLead();
@@ -296,13 +298,13 @@ export default function GlobalLeadsPage() {
     setPage(1);
   }
 
-  const hasActiveFilters = Boolean(debouncedSearch) || !setsEqual(statusFilter, DEFAULT_STATUSES) || listFilter.size > 0 || campaignFilter || skipReasonFilter || lastActivityAfter || lastActivityBefore || sortBy || hasTelegram !== undefined || hasTwitter !== undefined || hasEmail !== undefined || tgContacted !== undefined;
+  const hasActiveFilters = Boolean(debouncedSearch) || !setsEqual(statusFilter, DEFAULT_STATUSES) || listFilter.size > 0 || campaignFilter || skipReasonFilter || lastActivityAfter || lastActivityBefore || sortBy || hasTelegram !== undefined || hasTwitter !== undefined || hasEmail !== undefined || tgContacted !== undefined || xContacted !== undefined;
 
   function resetFilters() {
     setSearch(""); setStatusFilter(new Set(DEFAULT_STATUSES)); setListFilter(new Set()); setCampaignFilter(undefined);
     setSkipReasonFilter(""); setLastActivityAfter(""); setLastActivityBefore(""); setSortBy(null); setSortDir("desc"); setPage(1);
     setSelected(new Set());
-    setHasTelegram(undefined); setHasTwitter(undefined); setHasEmail(undefined); setTgContacted(undefined);
+    setHasTelegram(undefined); setHasTwitter(undefined); setHasEmail(undefined); setTgContacted(undefined); setXContacted(undefined);
   }
 
   function toggleChip<T>(current: T | undefined, value: T, setter: (v: T | undefined) => void) {
@@ -407,6 +409,8 @@ export default function GlobalLeadsPage() {
             { label: "Has Email", icon: <Mail className="h-3 w-3" />, active: hasEmail === true, onClick: () => toggleChip(hasEmail, true, setHasEmail) },
             { label: "TG Contacted", icon: <CheckCircle2 className="h-3 w-3" />, active: tgContacted === true, onClick: () => toggleChip(tgContacted, true, setTgContacted) },
             { label: "TG Not Contacted", icon: null, active: tgContacted === false, onClick: () => toggleChip(tgContacted, false, setTgContacted) },
+            { label: "X Contacted", icon: <CheckCircle2 className="h-3 w-3" />, active: xContacted === true, onClick: () => toggleChip(xContacted, true, setXContacted) },
+            { label: "X Not Contacted", icon: null, active: xContacted === false, onClick: () => toggleChip(xContacted, false, setXContacted) },
           ] as { label: string; icon: React.ReactNode; active: boolean; onClick: () => void }[]
         ).map((chip) => (
           <button
@@ -512,8 +516,18 @@ export default function GlobalLeadsPage() {
                               </Link>
                               {lead.email && <EmailCopyButton email={lead.email} />}
                               {lead.twitter_url && (
-                                <SocialIconLink href={lead.twitter_url} label={`X: ${lead.twitter_url}`}>
-                                  <XIcon className="h-3 w-3" />
+                                <SocialIconLink
+                                  href={lead.twitter_url}
+                                  label={lead.x_contacted_at ? `X: ${lead.twitter_url} · Contacted ${relativeDate(lead.x_contacted_at).label}` : `X: ${lead.twitter_url}`}
+                                >
+                                  <span className="relative inline-flex">
+                                    <XIcon className={`h-3 w-3 ${lead.x_contacted_at ? "text-emerald-500" : ""}`} />
+                                    {lead.x_contacted_at && (
+                                      <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-emerald-500 flex items-center justify-center">
+                                        <Check className="h-1.5 w-1.5 text-white" />
+                                      </span>
+                                    )}
+                                  </span>
                                 </SocialIconLink>
                               )}
                               {lead.telegram_username && (

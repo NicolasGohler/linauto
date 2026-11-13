@@ -150,6 +150,7 @@ export interface LeadList {
   campaign_count: number;
   archived: boolean;
   tg_enrich_enabled: boolean;
+  x_enrich_enabled: boolean;
   source_url: string | null;
   scrape_account_id: string | null;
   created_at: string;
@@ -196,6 +197,7 @@ export interface LeadListStats {
   email_coverage: number;
   twitter_coverage: number;
   tg_contacted_rate: number;
+  x_contacted_rate: number;
 }
 
 export interface LeadListDetail extends LeadList {
@@ -231,6 +233,8 @@ export interface Lead {
   telegram_username: string | null;
   telegram_alternatives: string[] | null;
   tg_contacted_at: string | null;
+  x_alternatives: XCandidate[] | null;
+  x_contacted_at: string | null;
   notes: string | null;
   location: string | null;
   extra_data: Record<string, unknown> | null;
@@ -261,8 +265,27 @@ export interface LeadUpdateRequest {
   twitter_url?: string | null;
   telegram_username?: string | null;
   tg_contacted?: boolean | null;
+  x_contacted?: boolean | null;
   notes?: string | null;
   location?: string | null;
+}
+
+export interface XCandidate {
+  username: string;
+  score: number;
+  name?: string;
+  bio?: string;
+  confident?: boolean;
+}
+
+export interface FindXTask {
+  task_id: string;
+  status: "running" | "done" | "error";
+  x_username: string | null;
+  x_score: number | null;
+  x_alternatives: XCandidate[];
+  logs: string[];
+  error: string | null;
 }
 
 export interface FindTelegramTask {

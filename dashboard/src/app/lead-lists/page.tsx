@@ -53,6 +53,7 @@ export default function LeadListsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
   const [newTgEnrich, setNewTgEnrich] = useState(true);
+  const [newXEnrich, setNewXEnrich] = useState(false);
   const [showEventDialog, setShowEventDialog] = useState(false);
   const [scrapingIds, setScrapingIds] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
@@ -158,7 +159,7 @@ export default function LeadListsPage() {
   const handleCreate = () => {
     if (!newName.trim()) return;
     createList.mutate(
-      { name: newName.trim(), tg_enrich_enabled: newTgEnrich },
+      { name: newName.trim(), tg_enrich_enabled: newTgEnrich, x_enrich_enabled: newXEnrich },
       {
         onSuccess: () => {
           toast.success("Lead list created");
@@ -223,6 +224,7 @@ export default function LeadListsPage() {
                 <div className="flex items-center gap-1 shrink-0">
                   {ll.archived && <Badge variant="outline" className="text-xs">Archived</Badge>}
                   {!ll.tg_enrich_enabled && <Badge variant="outline" className="text-xs text-muted-foreground">TG off</Badge>}
+                  {ll.x_enrich_enabled && <Badge variant="outline" className="text-xs">X on</Badge>}
                   {isScraping && <ScrapeProgressBadge listId={ll.id} />}
                 </div>
               </div>
@@ -311,6 +313,16 @@ export default function LeadListsPage() {
               />
               <span>Enable Telegram enrichment</span>
               <span className="text-xs text-muted-foreground">(background sweeper will search TG handles for leads in this list)</span>
+            </label>
+            <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={newXEnrich}
+                onChange={(e) => setNewXEnrich(e.target.checked)}
+                className="h-4 w-4 rounded border-border accent-primary"
+              />
+              <span>Enable X enrichment</span>
+              <span className="text-xs text-muted-foreground">(background sweeper will search personal X handles for leads without one)</span>
             </label>
           </CardContent>
         </Card>

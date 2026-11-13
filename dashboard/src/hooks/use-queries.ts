@@ -232,7 +232,7 @@ export function useCreateLeadList() {
 export function useUpdateLeadList(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { name?: string; tg_enrich_enabled?: boolean }) =>
+    mutationFn: (data: { name?: string; tg_enrich_enabled?: boolean; x_enrich_enabled?: boolean }) =>
       api.updateLeadList(id, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["lead-lists"] });
@@ -388,6 +388,7 @@ export function useGlobalLeads(params?: {
   has_twitter?: boolean;
   has_email?: boolean;
   tg_contacted?: boolean;
+  x_contacted?: boolean;
 }) {
   return useQuery({
     queryKey: ["global-leads", params],
@@ -597,6 +598,33 @@ export function useFindTelegramStatus(leadId: string, taskId: string | null) {
       const status = (q.state.data as { status?: string } | undefined)?.status;
       if (status === "done" || status === "error") {
         // Refresh the lead to pick up the persisted telegram_alternatives
+        qc.invalidateQueries({ queryKey: ["lead", leadId] });
+        return false;
+      }
+      return 2000;
+    },
+  });
+}
+
+export function useFindX(leadId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.startFindX(leadId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["lead", leadId] });
+    },
+  });
+}
+
+export function useFindXStatus(leadId: string, taskId: string | null) {
+  const qc = useQueryClient();
+  return useQuery({
+    queryKey: ["find-x-status", leadId, taskId],
+    queryFn: () => api.getFindXStatus(leadId, taskId as string),
+    enabled: !!taskId,
+    refetchInterval: (q) => {
+      const status = (q.state.data as { status?: string } | undefined)?.status;
+      if (status === "done" || status === "error") {
         qc.invalidateQueries({ queryKey: ["lead", leadId] });
         return false;
       }

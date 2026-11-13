@@ -13,6 +13,8 @@ import {
   useRestoreLead,
   useFindTelegram,
   useFindTelegramStatus,
+  useFindX,
+  useFindXStatus,
   useEnrichLeadPhone,
   useLeadNotes,
   useCreateLeadNote,
@@ -23,7 +25,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import type { Lead, LeadActivity, LeadNote, FindTelegramTask, LeadListRef, CampaignRef } from "@/lib/types";
+import type { Lead, LeadActivity, LeadNote, FindTelegramTask, FindXTask, XCandidate, LeadListRef, CampaignRef } from "@/lib/types";
 import {
   ArrowLeft, ExternalLink, Pencil, Check, X,
   Copy, Send, RotateCcw, FastForward, Trash2, Undo2,
@@ -71,6 +73,12 @@ const ACTION_ICON: Record<string, React.ReactNode> = {
   tg_contacted: <Check className="h-3.5 w-3.5" />,
   tg_contacted_cleared: <X className="h-3.5 w-3.5" />,
   twitter_found: <Search className="h-3.5 w-3.5" />,
+  x_found: <Search className="h-3.5 w-3.5" />,
+  x_sweep_searched: <Search className="h-3.5 w-3.5" />,
+  x_saved: <Check className="h-3.5 w-3.5" />,
+  x_removed: <X className="h-3.5 w-3.5" />,
+  x_contacted: <Check className="h-3.5 w-3.5" />,
+  x_contacted_cleared: <X className="h-3.5 w-3.5" />,
   phone_enriched: <Sparkles className="h-3.5 w-3.5" />,
 };
 
@@ -88,6 +96,12 @@ const EVENT_LABELS: Record<string, string> = {
   tg_contacted: "TG outreach done",
   tg_contacted_cleared: "TG outreach cleared",
   twitter_found: "Twitter backfilled",
+  x_found: "X search",
+  x_sweep_searched: "X auto-search",
+  x_saved: "X handle saved",
+  x_removed: "X handle removed",
+  x_contacted: "X outreach done",
+  x_contacted_cleared: "X outreach cleared",
   phone_enriched: "Phone enriched",
 };
 
@@ -476,6 +490,196 @@ function TelegramSection({ lead, onSave, onToggleContacted, activity }: Telegram
 }
 
 // ── Copy button ──────────────────────────────────────────────────────────────
+
+// ── X section (same UX as Telegram: inline edit + Find + scored candidates) ──
+
+interface XSectionProps {
+  lead: Lead;
+  onSave: (handle: string | null) => Promise<void>;
+  onToggleContacted: (v: boolean) => Promise<void>;
+}
+
+function xHandleFromUrl(url: string | null): string | null {
+  if (!url) return null;
+  const m = url.match(/(?:x|twitter)\.com\/@?([A-Za-z0-9_]+)/i);
+  return m ? m[1] : url.replace(/^@/, "");
+}
+
+function XSection({ lead, onSave, onToggleContacted }: XSectionProps) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [taskId, setTaskId] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const findMutation = useFindX(lead.id);
+  const taskQuery = useFindXStatus(lead.id, taskId);
+  const taskData = taskQuery.data as FindXTask | undefined;
+  const isSearching = !!taskId && taskData?.status === "running";
+  const searchDone = !!taskId && (taskData?.status === "done" || taskData?.status === "error");
+
+  const handle = xHandleFromUrl(lead.twitter_url);
+  const candidates: XCandidate[] = taskId && taskData
+    ? taskData.x_alternatives ?? []
+    : lead.x_alternatives ?? [];
+
+  useEffect(() => {
+    if (taskData?.status === "done" && taskData.x_username && !editing && !handle) {
+      setDraft(taskData.x_username);
+      setEditing(true);
+    }
+  }, [taskData?.status, taskData?.x_username]);
+
+  useEffect(() => {
+    if (editing) inputRef.current?.focus();
+  }, [editing]);
+
+  async function handleSave(value?: string) {
+    setSaving(true);
+    try {
+      const cleaned = (value ?? draft).trim().replace(/^@/, "");
+      await onSave(cleaned || null);
+      setEditing(false);
+      setTaskId(null);
+    } catch {
+      toast.error("Failed to save X handle");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleFind() {
+    setTaskId(null);
+    try {
+      const result = await findMutation.mutateAsync();
+      setTaskId(result.task_id);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to start search");
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-zinc-500/30 bg-zinc-500/5 px-3 py-2.5 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-foreground/80">X / Twitter</span>
+        <button
+          onClick={handleFind}
+          disabled={findMutation.isPending || isSearching}
+          className="flex items-center gap-1 text-xs text-foreground/70 hover:text-foreground disabled:opacity-40 transition-colors"
+          title="Search X for this lead's personal account"
+        >
+          {isSearching ? <><Loader2 className="h-3 w-3 animate-spin" /> Searching…</> : <><Search className="h-3 w-3" /> Find</>}
+        </button>
+      </div>
+
+      {editing ? (
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm text-muted-foreground">@</span>
+          <input
+            ref={inputRef}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") setEditing(false); }}
+            placeholder="handle"
+            className="flex-1 rounded border border-border bg-background px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-zinc-400"
+            disabled={saving}
+          />
+          <button onClick={() => handleSave()} disabled={saving} className="rounded p-1 text-emerald-500 hover:bg-emerald-500/10 transition-colors">
+            <Check className="h-3.5 w-3.5" />
+          </button>
+          <button onClick={() => setEditing(false)} className="rounded p-1 text-muted-foreground hover:bg-muted transition-colors">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ) : (
+        <div className="group flex items-center gap-1.5 min-h-[1.75rem]">
+          {handle ? (
+            <>
+              <span className="text-sm font-medium">@{handle}</span>
+              <a href={`https://x.com/${handle}`} target="_blank" rel="noopener noreferrer" className="text-foreground/60 hover:text-foreground transition-colors" title="Open on X">
+                <ExternalLink className="h-3 w-3" />
+              </a>
+              <CopyButton text={handle} label="Copy handle" />
+            </>
+          ) : (
+            <span className="text-sm text-muted-foreground/50 italic">{isSearching ? "Searching…" : "No handle yet"}</span>
+          )}
+          <button onClick={() => { setDraft(handle ?? ""); setEditing(true); }}
+            className="opacity-0 group-hover:opacity-100 rounded p-0.5 text-muted-foreground/60 hover:text-muted-foreground transition-all ml-0.5" title="Edit X handle">
+            <Pencil className="h-3 w-3" />
+          </button>
+          {handle && (
+            <button onClick={() => handleSave("")} disabled={saving}
+              className="opacity-0 group-hover:opacity-100 rounded p-0.5 text-muted-foreground/60 hover:text-destructive transition-all" title="Remove X handle (it won't be suggested again)">
+              {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+            </button>
+          )}
+        </div>
+      )}
+
+      {handle && (
+        <div className="flex items-center justify-between pt-1 border-t border-zinc-500/20">
+          {lead.x_contacted_at ? (
+            <div className="flex items-center gap-1.5">
+              <Check className="h-3.5 w-3.5 text-emerald-500" />
+              <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">Contacted {relativeDate(lead.x_contacted_at).label}</span>
+            </div>
+          ) : (
+            <span className="text-xs text-muted-foreground/60">Not yet contacted</span>
+          )}
+          <button
+            onClick={() => onToggleContacted(!lead.x_contacted_at)}
+            className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+              lead.x_contacted_at
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20"
+                : "border-zinc-500/30 bg-transparent text-foreground/70 hover:bg-zinc-500/10"
+            }`}
+          >
+            {lead.x_contacted_at ? "↩ Undo" : "✓ Mark contacted"}
+          </button>
+        </div>
+      )}
+
+      {candidates.length > 0 && (
+        <div className="pt-1 border-t border-zinc-500/20 space-y-1.5">
+          <p className="text-xs text-muted-foreground">{taskId ? "Found — pick the right one:" : "Candidates:"}</p>
+          <div className="space-y-1">
+            {candidates.map((c) => (
+              <button
+                key={c.username}
+                onClick={() => { setDraft(c.username); setEditing(true); }}
+                title={c.bio || undefined}
+                className={`w-full text-left flex items-center gap-2 rounded-md border px-2 py-1 text-xs transition-colors ${
+                  handle?.toLowerCase() === c.username.toLowerCase()
+                    ? "border-foreground/40 bg-foreground/10"
+                    : "border-zinc-500/30 hover:bg-zinc-500/10"
+                }`}
+              >
+                <span className="font-medium">@{c.username}</span>
+                {c.name && <span className="text-muted-foreground truncate">{c.name}</span>}
+                <span className={`ml-auto shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                  c.confident || c.score >= 5 ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                }`}>
+                  {c.score.toFixed(1)}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {searchDone && taskData?.logs && taskData.logs.length > 0 && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-muted-foreground/60 hover:text-muted-foreground select-none">Search log ({taskData.logs.length} lines)</summary>
+          <div className="mt-1 rounded bg-muted/50 p-2 font-mono text-xs leading-relaxed max-h-40 overflow-y-auto space-y-0.5">
+            {taskData.logs.map((line, i) => <p key={i} className="text-muted-foreground">{line}</p>)}
+          </div>
+        </details>
+      )}
+      {taskData?.status === "error" && <p className="text-xs text-rose-500">{taskData.error || "Search failed"}</p>}
+    </div>
+  );
+}
 
 function CopyButton({ text, label }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
@@ -1068,16 +1272,15 @@ export default function LeadDetailPage() {
               }}
             />
 
-            {/* Twitter / X */}
-            <InlineField
-              label="X / Twitter"
-              value={twitterHandle}
-              placeholder="Add X handle"
-              prefix="@"
-              href={(h) => `https://x.com/${h.replace(/^@/, "")}`}
+            {/* Twitter / X — Find button, scored candidates, outreach toggle */}
+            <XSection
+              lead={lead}
               onSave={async (v) => {
-                const url = v ? `https://x.com/${v.replace(/^@/, "")}` : null;
-                await save("twitter_url", url);
+                await save("twitter_url", v ? `https://x.com/${v.replace(/^@/, "")}` : null);
+              }}
+              onToggleContacted={async (contacted) => {
+                await update.mutateAsync({ x_contacted: contacted });
+                toast.success(contacted ? "Marked as contacted on X" : "Cleared");
               }}
             />
 

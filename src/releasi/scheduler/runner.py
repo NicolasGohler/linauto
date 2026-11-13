@@ -209,6 +209,7 @@ _pacing_alerts_sent: set = set()
 # Held for the duration of the find_telegram() call (and any flood-wait sleep).
 # The per-lead Find button does NOT use this lock — it creates its own client.
 _tg_sweep_lock = asyncio.Lock()
+_x_sweep_lock = asyncio.Lock()
 
 # UTC datetime until which the sweeper is flood-waiting, or None.
 # Set before asyncio.sleep(); cleared after. Read by the status API endpoint.
@@ -2432,6 +2433,86 @@ async def telegram_enrichment_sweep():
             _tg_last_processed_at = datetime.utcnow()
 
 
+async def x_enrichment_sweep():
+    """Background X handle enrichment: one lead per tick (every minute).
+
+    Picks the next lead without a personal twitter_url in a list with
+    x_enrich_enabled=True that the sweep has never searched, runs find_x()
+    (read-only twitterapi.io lookups) and persists the result:
+      - confident match → saved to twitter_url (x_found event, source=sweep)
+      - all other name matches → x_alternatives with scores, for review in the UI
+    Rate limits leave the lead unmarked so it is retried on a later tick.
+    """
+    settings = get_settings()
+    if not settings.twitterapi_key or _x_sweep_lock.locked():
+        return
+
+    async with _x_sweep_lock:
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            repo = Repository(session)
+            if settings.x_sweep_limit:
+                stats = await repo.get_x_sweep_stats()
+                if stats["searched_count"] >= settings.x_sweep_limit:
+                    return  # spend cap reached; raise RELEASI_X_SWEEP_LIMIT to continue
+            lead = await repo.get_next_lead_for_x_sweep()
+            if not lead:
+                return
+            lead_id = lead.id
+            snapshot = dict(
+                name=f"{lead.first_name} {lead.last_name}",
+                company=lead.company,
+                linkedin_url=lead.linkedin_url,
+                email=lead.email,
+                title=lead.title,
+                extra_data=lead.extra_data or {},
+            )
+
+        from releasi.twitter.resolver import find_x
+        try:
+            result = await find_x(api_key=settings.twitterapi_key, **snapshot)
+        except Exception as exc:
+            logger.error("x_sweep.find_error", lead_id=lead_id, error=str(exc))
+            return
+        if result.rate_limited and not result.best_match:
+            logger.warning("x_sweep.rate_limited", lead_id=lead_id)
+            return
+
+        async with session_factory() as session:
+            repo = Repository(session)
+            lead_obj = await repo.get_lead_by_id(lead_id)
+            if not lead_obj:
+                return
+            candidates = []
+            if result.best_match:
+                candidates.append({"username": result.best_match, "score": round(result.best_score or 0, 1), "confident": True})
+            candidates.extend(result.alternatives)
+            await repo.log_lead_event(
+                lead_id=lead_id,
+                event_type="x_sweep_searched",
+                details={
+                    "found": result.best_match is not None,
+                    "match": result.best_match,
+                    "score": result.best_score,
+                    "alternatives": [a["username"] for a in result.alternatives],
+                    "api_calls": result.api_calls,
+                    "logs": result.logs[-6:],
+                },
+            )
+            updates = {"x_alternatives": candidates or None}
+            if result.best_match and not lead_obj.twitter_url:
+                updates["twitter_url"] = f"https://x.com/{result.best_match}"
+                await repo.log_lead_event(
+                    lead_id=lead_id,
+                    event_type="x_found",
+                    details={"username": result.best_match, "score": result.best_score, "source": "sweep"},
+                )
+            await repo.update_lead(lead_obj, **updates)
+            await session.commit()
+            logger.info("x_sweep.done", lead_id=lead_id, match=result.best_match,
+                        alternatives=len(result.alternatives), api_calls=result.api_calls)
+
+
 async def check_cookie_health(account_id: Optional[str] = None):
     """Startup/post-login observation through the exclusive, proxied browser.
 
@@ -2845,6 +2926,17 @@ async def start_scheduler():
         name="Telegram Enrichment Sweep",
         replace_existing=True,
         misfire_grace_time=600,
+    )
+
+    # X handle enrichment sweep — one lead per minute via twitterapi.io (read-only).
+    # Only runs for lists with x_enrich_enabled and when RELEASI_TWITTERAPI_KEY is set.
+    scheduler.add_job(
+        x_enrichment_sweep,
+        IntervalTrigger(minutes=1),
+        id="x_enrichment_sweep",
+        name="X Enrichment Sweep",
+        replace_existing=True,
+        misfire_grace_time=120,
     )
 
     # Daily summary Slack notification disabled

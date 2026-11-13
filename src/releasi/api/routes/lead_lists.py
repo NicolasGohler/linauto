@@ -342,7 +342,11 @@ async def create_lead_list(
     existing = await repo.get_lead_list_by_name(body.name)
     if existing:
         raise HTTPException(status_code=409, detail="Lead list name already exists")
-    ll = await repo.create_lead_list(name=body.name, tg_enrich_enabled=body.tg_enrich_enabled)
+    ll = await repo.create_lead_list(
+        name=body.name,
+        tg_enrich_enabled=body.tg_enrich_enabled,
+        x_enrich_enabled=body.x_enrich_enabled,
+    )
     return await _enrich_lead_list(repo, ll)
 
 

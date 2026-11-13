@@ -269,7 +269,7 @@ export default function LeadListDetailPage({
             {
               label: "Twitter/X Coverage",
               value: stats.twitter_coverage,
-              sub: `${Math.round((stats.twitter_coverage / 100) * stats.total)} leads`,
+              sub: stats.x_contacted_rate > 0 ? `${stats.x_contacted_rate}% contacted` : `${Math.round((stats.twitter_coverage / 100) * stats.total)} leads`,
               color: stats.twitter_coverage >= 30 ? "text-emerald-500" : stats.twitter_coverage >= 10 ? "text-amber-500" : "text-muted-foreground",
             },
           ].map((card) => (
@@ -337,6 +337,30 @@ export default function LeadListDetailPage({
               <p className="text-xs text-muted-foreground mt-0.5">
                 When enabled, the background sweeper will look up Telegram handles for leads in this list.
                 Disable for lists where Telegram outreach doesn&apos;t make sense.
+              </p>
+            </div>
+          </label>
+          <label className="flex items-start gap-3 cursor-pointer select-none mt-4">
+            <input
+              type="checkbox"
+              checked={list.x_enrich_enabled}
+              onChange={(e) => {
+                const enabled = e.target.checked;
+                updateList.mutate(
+                  { x_enrich_enabled: enabled },
+                  {
+                    onSuccess: () => toast.success(enabled ? "X enrichment enabled" : "X enrichment disabled"),
+                    onError: (err) => toast.error(err.message),
+                  }
+                );
+              }}
+              className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
+            />
+            <div>
+              <p className="text-sm font-medium">X enrichment</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                When enabled, the background sweeper looks up personal X handles for leads in this list that
+                don&apos;t have one yet. Confident matches are saved, weaker ones are kept as candidates on the lead.
               </p>
             </div>
           </label>

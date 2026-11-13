@@ -131,6 +131,8 @@ class Settings(BaseSettings):
     # Telegram enrichment (Telethon)
     telegram_api_id: int = 0
     telegram_api_hash: str = ""
+    twitterapi_key: str = ""     # twitterapi.io key for X handle lookup (RELEASI_TWITTERAPI_KEY)
+    x_sweep_limit: int = 0       # max leads the X sweep may search in total; 0 = no cap (RELEASI_X_SWEEP_LIMIT)
     telegram_session: str = ""   # StringSession string, generated once
 
     # Apollo.io enrichment (phone lookup)

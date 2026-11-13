@@ -326,6 +326,8 @@ class LeadOut(BaseModel):
     telegram_username: Optional[str] = None
     telegram_alternatives: Optional[List[str]] = None
     tg_contacted_at: Optional[datetime] = None
+    x_alternatives: Optional[List[Dict[str, Any]]] = None
+    x_contacted_at: Optional[datetime] = None
     notes: Optional[str] = None
     location: Optional[str] = None
     extra_data: Optional[Dict[str, Any]] = None
@@ -362,6 +364,8 @@ class LeadUpdateRequest(BaseModel):
     telegram_username: Optional[str] = None
     # True = mark contacted now, False = clear the contacted timestamp
     tg_contacted: Optional[bool] = None
+    # True = mark contacted on X now, False = clear it
+    x_contacted: Optional[bool] = None
     notes: Optional[str] = None
     location: Optional[str] = None
 
@@ -371,6 +375,16 @@ class FindTelegramTaskOut(BaseModel):
     status: str  # "running" | "done" | "error"
     telegram_username: Optional[str] = None
     telegram_alternatives: List[str] = []
+    logs: List[str] = []
+    error: Optional[str] = None
+
+
+class FindXTaskOut(BaseModel):
+    task_id: str
+    status: str  # "running" | "done" | "error"
+    x_username: Optional[str] = None
+    x_score: Optional[float] = None
+    x_alternatives: List[Dict[str, Any]] = []
     logs: List[str] = []
     error: Optional[str] = None
 
@@ -442,6 +456,7 @@ class LeadListOut(BaseModel):
     campaign_count: int = 0
     archived: bool = False
     tg_enrich_enabled: bool = True
+    x_enrich_enabled: bool = False
     source_url: Optional[str] = None
     scrape_account_id: Optional[str] = None
     created_at: datetime
@@ -454,11 +469,13 @@ class LeadListOut(BaseModel):
 class LeadListCreate(BaseModel):
     name: str
     tg_enrich_enabled: bool = True
+    x_enrich_enabled: bool = False
 
 
 class LeadListUpdate(BaseModel):
     name: Optional[str] = None
     tg_enrich_enabled: Optional[bool] = None
+    x_enrich_enabled: Optional[bool] = None
 
 
 class LeadListStats(BaseModel):
@@ -468,6 +485,7 @@ class LeadListStats(BaseModel):
     email_coverage: float    # 0-100 %
     twitter_coverage: float  # 0-100 %
     tg_contacted_rate: float # 0-100 % of leads with TG that have been contacted
+    x_contacted_rate: float = 0.0  # 0-100 % of leads with X that have been contacted
 
 
 class LeadListDetail(LeadListOut):

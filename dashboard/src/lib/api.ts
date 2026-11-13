@@ -16,6 +16,7 @@ import type {
   LeadActivity,
   LeadNote,
   FindTelegramTask,
+  FindXTask,
 } from "./types";
 
 // API calls go to same-origin /api/v1/* — the Next.js route handler at
@@ -283,10 +284,10 @@ export const fetchLeadLists = (params?: { include_archived?: boolean }) => {
 export const fetchLeadList = (id: string) =>
   apiFetch<LeadListDetail>(`/lead-lists/${id}`);
 
-export const createLeadList = (data: { name: string; tg_enrich_enabled?: boolean }) =>
+export const createLeadList = (data: { name: string; tg_enrich_enabled?: boolean; x_enrich_enabled?: boolean }) =>
   apiFetch<LeadList>("/lead-lists", { method: "POST", body: JSON.stringify(data) });
 
-export const updateLeadList = (id: string, data: { name?: string; tg_enrich_enabled?: boolean }) =>
+export const updateLeadList = (id: string, data: { name?: string; tg_enrich_enabled?: boolean; x_enrich_enabled?: boolean }) =>
   apiFetch<LeadList>(`/lead-lists/${id}`, { method: "PATCH", body: JSON.stringify(data) });
 
 export const deleteLeadList = (id: string) =>
@@ -373,6 +374,7 @@ export const fetchGlobalLeads = (params?: {
   has_twitter?: boolean;
   has_email?: boolean;
   tg_contacted?: boolean;
+  x_contacted?: boolean;
 }) => {
   const sp = new URLSearchParams();
   if (params?.include_archived) sp.set("include_archived", "true");
@@ -400,6 +402,7 @@ export const fetchGlobalLeads = (params?: {
   if (params?.has_twitter !== undefined) sp.set("has_twitter", String(params.has_twitter));
   if (params?.has_email !== undefined) sp.set("has_email", String(params.has_email));
   if (params?.tg_contacted !== undefined) sp.set("tg_contacted", String(params.tg_contacted));
+  if (params?.x_contacted !== undefined) sp.set("x_contacted", String(params.x_contacted));
   const qs = sp.toString();
   return apiFetch<LeadPage>(`/leads${qs ? `?${qs}` : ""}`);
 };
@@ -442,6 +445,12 @@ export const startFindTelegram = (leadId: string, force = false) =>
 
 export const getFindTelegramStatus = (leadId: string, taskId: string) =>
   apiFetch<FindTelegramTask>(`/leads/${leadId}/find-telegram/${taskId}`);
+
+export const startFindX = (leadId: string) =>
+  apiFetch<FindXTask>(`/leads/${leadId}/find-x`, { method: "POST" });
+
+export const getFindXStatus = (leadId: string, taskId: string) =>
+  apiFetch<FindXTask>(`/leads/${leadId}/find-x/${taskId}`);
 
 export const enrichLeadPhone = (leadId: string) =>
   apiFetch<{ phone: string | null; found: boolean }>(`/leads/${leadId}/enrich-phone`, { method: "POST" });
