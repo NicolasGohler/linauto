@@ -124,8 +124,18 @@ async def update_campaign(
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
     updates = body.model_dump(exclude_unset=True)
+    # Leaving sample mode (0 -> no limit) releases every follow-up that piled
+    # up while paused. Re-spread them over the next few hours so they don't
+    # all go out in one dispatcher cycle.
+    lifting_sample = (
+        "followup_sample_remaining" in updates
+        and updates["followup_sample_remaining"] is None
+        and campaign.followup_sample_remaining is not None
+    )
     if updates:
         campaign = await repo.update_campaign(campaign, **updates)
+    if lifting_sample:
+        await repo.spread_overdue_followups(campaign.id, hours=6)
     return await _enrich_campaign(repo, campaign)
 
 
@@ -404,6 +414,7 @@ async def clone_campaign(
         followup_message_1=src.followup_message_1,
         followup_message_2=src.followup_message_2,
         followup_message_3=src.followup_message_3,
+        followup_step2_delay_hours=src.followup_step2_delay_hours,
         weekend_enabled=src.weekend_enabled,
         filter_no_photo=src.filter_no_photo,
         filter_min_connections=src.filter_min_connections,

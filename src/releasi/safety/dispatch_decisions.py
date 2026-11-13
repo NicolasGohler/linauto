@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 
 class LeadAction(str, Enum):
@@ -28,6 +28,7 @@ class LeadAction(str, Enum):
     NONE = "none"               # Leave the lead untouched (e.g. retry later)
     MARK_SENT = "mark_sent"     # Followup success or "prior conversation" skip
     MARK_ERROR = "mark_error"   # Burn to ERROR (generic failure)
+    RESCHEDULE = "reschedule"   # Part of the sequence sent; rest due later (result["continue_at"])
 
 
 class AccountAction(str, Enum):
@@ -53,6 +54,8 @@ class DispatchIntent:
     failure_kind: Optional[str] = None
     retry_delay_seconds: Optional[int] = None
     account_backoff_seconds: Optional[int] = None
+    # RESCHEDULE: when the rest of the follow-up sequence is due (naive UTC).
+    continue_at: Optional[Any] = None
 
 
 # Default 3-strike thresholds. Override in tests if needed.
@@ -80,6 +83,14 @@ def classify_followup_result(
       5. generic failure → mark ERROR; stop/back off at three failures,
          without treating action errors as proof of authentication loss
     """
+    if result.get("success") and result.get("continue_at"):
+        return DispatchIntent(
+            lead_action=LeadAction.RESCHEDULE,
+            continue_at=result["continue_at"],
+            consecutive_session=0,
+            consecutive_network=0,
+        )
+
     if result.get("success"):
         return DispatchIntent(
             lead_action=LeadAction.MARK_SENT,

@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useMemo, useState } from "react";
+import { use, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -47,7 +47,12 @@ import { StatCard } from "@/components/stats/stat-card";
 import { LeadsTable } from "@/components/leads/leads-table";
 import { CSVUpload } from "@/components/leads/csv-upload";
 import { ActivityTimeline } from "@/components/activity-timeline";
-import { MessageTemplateEditor } from "@/components/message-template-editor";
+import {
+  MessageTemplateEditor,
+  VariableChips,
+  BlankVariableHint,
+  type MessageTemplateEditorHandle,
+} from "@/components/message-template-editor";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
@@ -224,6 +229,37 @@ function SortableListRow({
   );
 }
 
+type EditorKey = "conn" | "m1" | "m2" | "m3";
+const EDITOR_LABELS: Record<EditorKey, string> = {
+  conn: "connection note", m1: "message 1", m2: "message 2", m3: "message 3",
+};
+
+function fmtHours(h: number) {
+  return h < 1 ? `${Math.round(h * 60)}m` : `${Math.round(h * 10) / 10}h`;
+}
+
+/** Timeline connector row between sequence steps. */
+function SeqWait({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="relative pl-7 py-2 text-xs text-muted-foreground flex flex-wrap items-center gap-2">
+      <span className="absolute left-[7px] top-0 bottom-0 w-px bg-border" />
+      {children}
+    </div>
+  );
+}
+
+/** Numbered sequence step with its message editor. */
+function SeqStep({ n, children }: { n: number; children: React.ReactNode }) {
+  return (
+    <div className="relative pl-7">
+      <span className="absolute left-0 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-foreground text-background text-[10px] font-medium">
+        {n}
+      </span>
+      {children}
+    </div>
+  );
+}
+
 export default function CampaignDetailPage({
   params,
 }: {
@@ -275,8 +311,13 @@ export default function CampaignDetailPage({
 
   // Compute per-variable fill rates from the lead sample (0–1).
   const { fillRates, customVariables, customVariableExamples } = useMemo(() => {
-    const leads = leadSample?.items;
-    if (!leads || leads.length === 0) return { fillRates: undefined, customVariables: [] as string[] };
+    // Score only leads that can still be messaged; skipped/removed/invalid
+    // rows from old imports would drag the % down for no reason.
+    const DEAD = new Set(["skipped", "removed", "invalid", "error", "withdrawn"]);
+    const all = leadSample?.items ?? [];
+    const live = all.filter((l) => !DEAD.has(String(l.status).toLowerCase()));
+    const leads = live.length > 0 ? live : all;
+    if (leads.length === 0) return { fillRates: undefined, customVariables: [] as string[] };
     const total = leads.length;
     const FIELD_MAP: Record<string, "first_name" | "last_name" | "company" | "title"> = {
       first_name: "first_name",
@@ -327,7 +368,21 @@ export default function CampaignDetailPage({
   const [editFollowupMsg2, setEditFollowupMsg2] = useState("");
   const [editFollowupMsg3, setEditFollowupMsg3] = useState("");
   const [editWeekendEnabled, setEditWeekendEnabled] = useState(false);
+  const [editStep2Delay, setEditStep2Delay] = useState("");
+  const [editSampleOn, setEditSampleOn] = useState(false);
+  const [editSampleCount, setEditSampleCount] = useState("3");
+  const [sampleDirty, setSampleDirty] = useState(false);
   const [settingsInit, setSettingsInit] = useState(false);
+  // Shared variable bar inserts into whichever message field was focused last.
+  const connEditorRef = useRef<MessageTemplateEditorHandle>(null);
+  const m1EditorRef = useRef<MessageTemplateEditorHandle>(null);
+  const m2EditorRef = useRef<MessageTemplateEditorHandle>(null);
+  const m3EditorRef = useRef<MessageTemplateEditorHandle>(null);
+  const [activeEditor, setActiveEditor] = useState<EditorKey>("m1");
+  function insertIntoActiveEditor(token: string) {
+    const target = { conn: connEditorRef, m1: m1EditorRef, m2: m2EditorRef, m3: m3EditorRef }[activeEditor];
+    target.current?.insertToken(token);
+  }
 
   const { data: activity } = useQuery({
     queryKey: ["campaign-activity", campaign?.account_id],
@@ -373,6 +428,9 @@ export default function CampaignDetailPage({
     setEditFollowupMsg2(campaign.followup_message_2 ?? "");
     setEditFollowupMsg3(campaign.followup_message_3 ?? "");
     setEditWeekendEnabled(campaign.weekend_enabled);
+    setEditStep2Delay(String(campaign.followup_step2_delay_hours ?? 0));
+    setEditSampleOn(campaign.followup_sample_remaining != null);
+    setEditSampleCount(String(campaign.followup_sample_remaining ?? 3));
     setSettingsInit(true);
   }
 
@@ -412,6 +470,17 @@ export default function CampaignDetailPage({
     if (editFollowupMsg2 !== (campaign!.followup_message_2 ?? "")) data.followup_message_2 = editFollowupMsg2 || null;
     if (editFollowupMsg3 !== (campaign!.followup_message_3 ?? "")) data.followup_message_3 = editFollowupMsg3 || null;
     if (editWeekendEnabled !== campaign!.weekend_enabled) data.weekend_enabled = editWeekendEnabled;
+    const step2 = editStep2Delay ? Number(editStep2Delay) : 0;
+    if (step2 !== (campaign!.followup_step2_delay_hours ?? 0)) data.followup_step2_delay_hours = step2;
+    // The server counts the sample down as sequences start, so only send it
+    // when the user actually changed it here.
+    if (sampleDirty) {
+      data.followup_sample_remaining = editSampleOn ? Math.max(0, Number(editSampleCount) || 0) : null;
+    }
+    // Re-planning queues a connection request right away, so only do it when
+    // something that affects connection sending changed.
+    const affectsConnections = ["connection_message_template", "filter_no_photo",
+      "filter_min_connections", "filter_exclude_open_to_work", "weekend_enabled"].some((k) => k in data);
     if (Object.keys(data).length === 0) {
       toast.info("No changes to save");
       return;
@@ -436,7 +505,8 @@ export default function CampaignDetailPage({
     updateCampaign.mutate(data, {
       onSuccess: () => {
         toast.success("Campaign settings saved");
-        if (campaign?.account_id) {
+        setSampleDirty(false);
+        if (campaign?.account_id && affectsConnections) {
           replanAccount(campaign.account_id).then(() =>
             toast.success("Schedule regenerated (1 lead queued immediately)")
           ).catch(() => {});
@@ -445,6 +515,10 @@ export default function CampaignDetailPage({
       onError: (err) => toast.error(err.message),
     });
   }
+
+  const seqBase = Number(editFollowupDelayHours) || 0;
+  const seqStep2 = Number(editStep2Delay) || 0;
+  const seqOff = !editFollowupEnabled;
 
   return (
     <div>
@@ -913,155 +987,253 @@ export default function CampaignDetailPage({
             </Card>
           </TabsContent>
 
-          <TabsContent value="settings" className="mt-4 space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Campaign Settings</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4 max-w-2xl">
-                <div>
-                  <label className="text-xs text-muted-foreground">Campaign Name</label>
-                  <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">Account</p>
-                  <p className="text-sm">{campaign.account_name ?? campaign.account_id}</p>
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">
-                    Connection Message Template
-                    <span className="ml-2 text-muted-foreground/70">(optional — leave empty to send without a note)</span>
-                  </label>
-                  <MessageTemplateEditor
-                    value={editConnMsg}
-                    onChange={setEditConnMsg}
-                    placeholder="Hi {{first_name}}, I came across your profile and would love to connect."
-                    minHeight={110}
-                    showCharLimit
-                    fillRates={fillRates}
-                    customVariables={customVariables}
-                    customVariableExamples={customVariableExamples}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="filterNoPhoto"
-                      checked={editFilterNoPhoto}
-                      onChange={(e) => setEditFilterNoPhoto(e.target.checked)}
-                    />
-                    <label htmlFor="filterNoPhoto" className="text-sm">Skip profiles without photo</label>
-                  </div>
-                  <div>
-                    <label className="text-xs text-muted-foreground">Min Connections</label>
-                    <Input
-                      type="number"
-                      value={editMinConnections}
-                      onChange={(e) => setEditMinConnections(e.target.value)}
-                      placeholder="No minimum"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="filterExcludeOpenToWork"
-                      checked={editExcludeOpenToWork}
-                      onChange={(e) => setEditExcludeOpenToWork(e.target.checked)}
-                    />
-                    <label htmlFor="filterExcludeOpenToWork" className="text-sm">Skip &ldquo;Open to Work&rdquo; profiles</label>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="weekendEnabled"
-                    checked={editWeekendEnabled}
-                    onChange={(e) => setEditWeekendEnabled(e.target.checked)}
-                  />
-                  <label htmlFor="weekendEnabled" className="text-sm">Run campaign on weekends</label>
-                </div>
-              </CardContent>
-            </Card>
+          <TabsContent value="settings" className="mt-4">
+            <div className="max-w-3xl space-y-4">
+              {/* One variable bar for every message field on this tab */}
+              <div className="sticky top-[57px] z-10 rounded-lg border border-border bg-background/95 backdrop-blur px-3 py-2 space-y-1">
+                <VariableChips
+                  label={`Insert into ${EDITOR_LABELS[activeEditor]}:`}
+                  onInsert={insertIntoActiveEditor}
+                  customVariables={customVariables}
+                  fillRates={fillRates}
+                  usedText={[editConnMsg, editFollowupMsg1, editFollowupMsg2, editFollowupMsg3].join(" ")}
+                />
+                <BlankVariableHint />
+              </div>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Follow-up Messages</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4 max-w-2xl">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="followupEnabled"
-                    checked={editFollowupEnabled}
-                    onChange={(e) => setEditFollowupEnabled(e.target.checked)}
-                  />
-                  <label htmlFor="followupEnabled" className="text-sm">
-                    Send follow-up messages when connection is accepted
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Connection request</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <label className="text-xs text-muted-foreground" htmlFor="campaignName">Campaign name</label>
+                      <Input id="campaignName" value={editName} onChange={(e) => setEditName(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">Account</p>
+                      <p className="text-sm h-9 flex items-center">{campaign.account_name ?? campaign.account_id}</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground block">
+                      Note <span className="text-muted-foreground/70">(optional, blank sends without a note)</span>
+                    </label>
+                    <MessageTemplateEditor
+                      ref={connEditorRef}
+                      onFocus={() => setActiveEditor("conn")}
+                      hideChips
+                      hideHint
+                      value={editConnMsg}
+                      onChange={setEditConnMsg}
+                      placeholder="Hi {{first_name}}, I came across your profile and would love to connect."
+                      minHeight={90}
+                      showCharLimit
+                      fillRates={fillRates}
+                      customVariables={customVariables}
+                      customVariableExamples={customVariableExamples}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-xs text-muted-foreground">Skip profiles that</p>
+                    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+                      <label className="flex items-center gap-2">
+                        <input type="checkbox" checked={editFilterNoPhoto} onChange={(e) => setEditFilterNoPhoto(e.target.checked)} />
+                        have no photo
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input type="checkbox" checked={editExcludeOpenToWork} onChange={(e) => setEditExcludeOpenToWork(e.target.checked)} />
+                        are &ldquo;Open to Work&rdquo;
+                      </label>
+                      <label className="flex items-center gap-2">
+                        have fewer than
+                        <Input
+                          type="number"
+                          min="0"
+                          value={editMinConnections}
+                          onChange={(e) => setEditMinConnections(e.target.value)}
+                          placeholder="any"
+                          className="h-7 w-20"
+                        />
+                        connections
+                      </label>
+                    </div>
+                  </div>
+
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={editWeekendEnabled} onChange={(e) => setEditWeekendEnabled(e.target.checked)} />
+                    Also send on weekends
                   </label>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Up to three messages, sent in order. Delivery waits for the delay
-                  below, then uses normal send-window rules. Variables are substituted
-                  per lead — click a chip above any field to insert.
-                </p>
-                <div>
-                  <label className="text-xs text-muted-foreground">Delay after acceptance (hours)</label>
-                  <Input
-                    type="number"
-                    min="0"
-                    value={editFollowupDelayHours}
-                    onChange={(e) => setEditFollowupDelayHours(e.target.value)}
-                    placeholder="0"
-                    disabled={!editFollowupEnabled}
-                    className="mt-1 max-w-[200px]"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">Message 1</label>
-                  <MessageTemplateEditor
-                    value={editFollowupMsg1}
-                    onChange={setEditFollowupMsg1}
-                    placeholder="Hi {{first_name}}, thanks for connecting! I wanted to reach out because…"
-                    disabled={!editFollowupEnabled}
-                    minHeight={96}
-                    fillRates={fillRates}
-                    customVariables={customVariables}
-                    customVariableExamples={customVariableExamples}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">
-                    Message 2 <span className="text-muted-foreground/70">(optional)</span>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-3 flex flex-row items-center justify-between space-y-0">
+                  <CardTitle className="text-base">Follow-up sequence</CardTitle>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={editFollowupEnabled} onChange={(e) => setEditFollowupEnabled(e.target.checked)} />
+                    On
                   </label>
-                  <MessageTemplateEditor
-                    value={editFollowupMsg2}
-                    onChange={setEditFollowupMsg2}
-                    placeholder="Second message — sent after message 1 goes through."
-                    disabled={!editFollowupEnabled || !editFollowupMsg1}
-                    minHeight={96}
-                    fillRates={fillRates}
-                    customVariables={customVariables}
-                    customVariableExamples={customVariableExamples}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">
-                    Message 3 <span className="text-muted-foreground/70">(optional)</span>
-                  </label>
-                  <MessageTemplateEditor
-                    value={editFollowupMsg3}
-                    onChange={setEditFollowupMsg3}
-                    placeholder="Third message — last in the sequence."
-                    disabled={!editFollowupEnabled || !editFollowupMsg2}
-                    minHeight={96}
-                    fillRates={fillRates}
-                    customVariables={customVariables}
-                    customVariableExamples={customVariableExamples}
-                  />
-                </div>
-              </CardContent>
-            </Card>
+                </CardHeader>
+                <CardContent className={editFollowupEnabled ? "" : "opacity-60"}>
+                      <div>
+                        <div className="relative pl-7 text-sm font-medium">
+                          <span className="absolute left-[3px] top-1.5 h-2 w-2 rounded-full bg-muted-foreground" />
+                          Connection accepted
+                        </div>
+                        <SeqWait>
+                          Wait
+                          <Input
+                            type="number"
+                            min="0"
+                            value={editFollowupDelayHours}
+                            onChange={(e) => setEditFollowupDelayHours(e.target.value)}
+                            disabled={seqOff}
+                            className="h-7 w-16"
+                          />
+                          hours
+                          {seqBase > 0 && <span>(randomized per lead: {fmtHours(seqBase * 0.75)} to {fmtHours(seqBase * 1.75)})</span>}
+                        </SeqWait>
+                        <SeqStep n={1}>
+                          <MessageTemplateEditor
+                            ref={m1EditorRef}
+                            onFocus={() => setActiveEditor("m1")}
+                            hideChips
+                            hideHint
+                            value={editFollowupMsg1}
+                            onChange={setEditFollowupMsg1}
+                            placeholder="Hi {{first_name}}, thanks for connecting!"
+                            disabled={seqOff}
+                            minHeight={72}
+                            fillRates={fillRates}
+                            customVariables={customVariables}
+                            customVariableExamples={customVariableExamples}
+                          />
+                        </SeqStep>
+                        <SeqWait>
+                          Wait
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.5"
+                            value={editStep2Delay}
+                            onChange={(e) => setEditStep2Delay(e.target.value)}
+                            disabled={seqOff || !editFollowupMsg2}
+                            className="h-7 w-16"
+                          />
+                          hours
+                          <span>
+                            {seqStep2 > 0
+                              ? `(randomized: ${fmtHours(seqStep2 * 0.8)} to ${fmtHours(seqStep2 * 1.3)}; skipped if they reply first)`
+                              : "(0 sends it right after message 1)"}
+                          </span>
+                        </SeqWait>
+                        <SeqStep n={2}>
+                          <MessageTemplateEditor
+                            ref={m2EditorRef}
+                            onFocus={() => setActiveEditor("m2")}
+                            hideChips
+                            hideHint
+                            value={editFollowupMsg2}
+                            onChange={setEditFollowupMsg2}
+                            placeholder="Optional"
+                            disabled={seqOff || !editFollowupMsg1}
+                            minHeight={72}
+                            fillRates={fillRates}
+                            customVariables={customVariables}
+                            customVariableExamples={customVariableExamples}
+                          />
+                        </SeqStep>
+                        <SeqWait>A few seconds later</SeqWait>
+                        <SeqStep n={3}>
+                          <MessageTemplateEditor
+                            ref={m3EditorRef}
+                            onFocus={() => setActiveEditor("m3")}
+                            hideChips
+                            hideHint
+                            value={editFollowupMsg3}
+                            onChange={setEditFollowupMsg3}
+                            placeholder="Optional"
+                            disabled={seqOff || !editFollowupMsg2}
+                            minHeight={72}
+                            fillRates={fillRates}
+                            customVariables={customVariables}
+                            customVariableExamples={customVariableExamples}
+                          />
+                        </SeqStep>
+                        <p className="pl-7 pt-3 text-xs text-muted-foreground">
+                          A message that would have an empty variable is not sent, and the sequence stops there.
+                        </p>
+                      </div>
+
+                  {/* Sample mode */}
+                  <div className="mt-5 rounded-md border border-border p-3 space-y-2">
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <label className="flex items-center gap-2 font-medium">
+                        <input
+                          type="checkbox"
+                          checked={editSampleOn}
+                          onChange={(e) => { setEditSampleOn(e.target.checked); setSampleDirty(true); }}
+                        />
+                        Test on a sample first
+                      </label>
+                      {editSampleOn && (
+                        <span className="flex items-center gap-2 text-muted-foreground">
+                          start
+                          <Input
+                            type="number"
+                            min="0"
+                            value={editSampleCount}
+                            onChange={(e) => { setEditSampleCount(e.target.value); setSampleDirty(true); }}
+                            className="h-7 w-16"
+                          />
+                          sequences, then pause new ones
+                        </span>
+                      )}
+                    </div>
+                    {campaign.followup_sample_remaining != null && !sampleDirty && (
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <span className={campaign.followup_sample_remaining === 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}>
+                          {campaign.followup_sample_remaining === 0
+                            ? "Sample used up. New follow-ups are paused; you get a Slack ping when the last sample sequence finishes."
+                            : `${campaign.followup_sample_remaining} more ${campaign.followup_sample_remaining === 1 ? "sequence" : "sequences"} will start before follow-ups pause.`}
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7"
+                          disabled={updateCampaign.isPending}
+                          onClick={() =>
+                            updateCampaign.mutate(
+                              { followup_sample_remaining: null },
+                              {
+                                onSuccess: () => {
+                                  setEditSampleOn(false);
+                                  setSampleDirty(false);
+                                  toast.success("Sample ended. Waiting follow-ups are spread over the next 6 hours.");
+                                },
+                                onError: (err) => toast.error(err.message),
+                              }
+                            )
+                          }
+                        >
+                          End sample, resume all
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <div className="flex justify-end">
+                <Button onClick={handleSaveSettings} disabled={updateCampaign.isPending}>
+                  Save settings
+                </Button>
+              </div>
+            </div>
           </TabsContent>
 
           <TabsContent value="activity" className="mt-4">

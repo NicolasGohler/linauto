@@ -51,6 +51,12 @@ export interface MessageTemplateEditorProps {
    *  - the live preview renders 0%-fill tokens as an "empty" marker
    */
   fillRates?: Record<string, number>;
+  /** Hide the chip row (when the page renders one shared <VariableChips> bar). */
+  hideChips?: boolean;
+  /** Hide the "space before a variable" hint (show it once per page instead). */
+  hideHint?: boolean;
+  /** Called when the textarea gains focus (lets a shared chip bar target it). */
+  onFocus?: () => void;
 }
 
 export interface MessageTemplateEditorHandle {
@@ -105,6 +111,122 @@ function buildPreview(template: string, fillRates?: Record<string, number>, cust
   return segs;
 }
 
+// ── Variable chips ───────────────────────────────────────────────────────────
+
+export interface VariableChipsProps {
+  onInsert: (token: string) => void;
+  disabled?: boolean;
+  customVariables?: string[];
+  fillRates?: Record<string, number>;
+  /** Template text(s) in use: low-fill variables they reference stay visible. */
+  usedText?: string;
+  label?: string;
+}
+
+/** Row of "+ {{token}}" chips with fill-rate badges. Low-fill (<10%) ones sit behind a toggle. */
+export function VariableChips({ onInsert, disabled, customVariables, fillRates, usedText = "", label = "Insert:" }: VariableChipsProps) {
+  const [showLowFill, setShowLowFill] = useState(false);
+  const used = usedText.toLowerCase();
+
+  const customChips = (customVariables ?? [])
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .filter((t) => !STANDARD_VARIABLES.some((v) => v.token === t));
+
+  const isLowFill = (token: string) =>
+    !!fillRates &&
+    fillRates[token] !== undefined &&
+    fillRates[token] < LOW_FILL_THRESHOLD &&
+    !used.includes(`{{${token}}}`);
+
+  const chips: Array<{ token: string; custom: boolean; description: string; example?: string }> = [
+    ...STANDARD_VARIABLES.map((v) => ({ token: v.token, custom: false, description: v.description, example: v.example })),
+    ...customChips.map((t) => ({ token: t, custom: true, description: "Custom variable from the lead's imported data (extra_data)." })),
+  ];
+  const visible = chips.filter((c) => showLowFill || !isLowFill(c.token));
+  const hiddenCount = chips.filter((c) => isLowFill(c.token)).length;
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {label && <span className="text-xs text-muted-foreground mr-1">{label}</span>}
+      <TooltipProvider delayDuration={150}>
+        {visible.map((c) => {
+          const rate = fillRates?.[c.token];
+          const isZero = rate === 0;
+          return (
+            <Tooltip key={c.token}>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={cn(
+                    "h-6 px-2 font-mono text-xs",
+                    c.custom && "border-dashed",
+                    isZero && "border-red-300 dark:border-red-700"
+                  )}
+                  // Keep focus in the textarea so the shared bar knows where to insert.
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => onInsert(c.token)}
+                  disabled={disabled}
+                >
+                  + {`{{${c.token}}}`}
+                  {rate !== undefined && rate < 1 && (
+                    <span
+                      className={cn(
+                        "ml-1 text-[10px] font-mono px-0.5 rounded leading-none",
+                        isZero
+                          ? "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400"
+                          : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                      )}
+                    >
+                      {Math.round(rate * 100)}%
+                    </span>
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-xs">
+                <p className="text-xs font-medium">{`{{${c.token}}}`}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{c.description}</p>
+                {c.example && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Example: <span className="font-medium text-foreground">{c.example}</span>
+                  </p>
+                )}
+                {rate !== undefined && rate < 1 && (
+                  <p className={cn("text-xs mt-1 font-medium", isZero ? "text-red-500" : "text-amber-500")}>
+                    {isZero ? "No leads have this field, so it will always send as empty" : `${Math.round(rate * 100)}% of leads have this field`}
+                  </p>
+                )}
+              </TooltipContent>
+            </Tooltip>
+          );
+        })}
+      </TooltipProvider>
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+          onClick={() => setShowLowFill((v) => !v)}
+        >
+          {showLowFill ? "Hide low-fill" : `+${hiddenCount} under 10% fill`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** One-line explanation of how blank variables render; show once per page. */
+export function BlankVariableHint() {
+  return (
+    <p className="text-xs text-muted-foreground">
+      A space before a variable is dropped when the field is blank:{" "}
+      <code className="text-[10px]">Hi {"{{first_name}},"}</code> becomes{" "}
+      <code className="text-[10px]">Hi,</code> not <code className="text-[10px]">Hi ,</code>.
+    </p>
+  );
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 /**
@@ -120,12 +242,11 @@ export const MessageTemplateEditor = forwardRef<
   MessageTemplateEditorHandle,
   MessageTemplateEditorProps
 >(function MessageTemplateEditor(
-  { value, onChange, placeholder, disabled, showCharLimit, minHeight = 96, id, customVariables, customVariableExamples, fillRates },
+  { value, onChange, placeholder, disabled, showCharLimit, minHeight = 96, id, customVariables, customVariableExamples, fillRates, hideChips, hideHint, onFocus },
   ref,
 ) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [cursor, setCursor] = useState<number | null>(null);
-  const [showLowFill, setShowLowFill] = useState(false);
 
   function insertAtCursor(text: string) {
     const ta = textareaRef.current;
@@ -169,142 +290,19 @@ export const MessageTemplateEditor = forwardRef<
   const overLimit      = showCharLimit && charCount > 300;
   const approachingLimit = showCharLimit && charCount > 250 && charCount <= 300;
 
-  const customChips = (customVariables ?? [])
-    .map((t) => t.trim())
-    .filter(Boolean)
-    .filter((t) => !STANDARD_VARIABLES.some((v) => v.token === t));
-
-  // Variables filled for under 10% of leads are hidden unless the user expands
-  // them or the template already uses them.
-  const isLowFill = (token: string) =>
-    !!fillRates &&
-    fillRates[token] !== undefined &&
-    fillRates[token] < LOW_FILL_THRESHOLD &&
-    !value.toLowerCase().includes(`{{${token}}}`);
-  const visibleStandard = STANDARD_VARIABLES.filter((v) => showLowFill || !isLowFill(v.token));
-  const visibleCustom = customChips.filter((t) => showLowFill || !isLowFill(t));
-  const hiddenCount =
-    STANDARD_VARIABLES.filter((v) => isLowFill(v.token)).length +
-    customChips.filter((t) => isLowFill(t)).length;
-
   const previewSegs = value.trim() ? buildPreview(value, fillRates, customVariableExamples) : null;
-
-  function FillRateBadge({ token }: { token: string }) {
-    if (!fillRates) return null;
-    const rate = fillRates[token];
-    if (rate === undefined || rate === 1) return null;
-    const pct = Math.round(rate * 100);
-    return (
-      <span
-        className={cn(
-          "ml-1 text-[10px] font-mono px-0.5 rounded leading-none",
-          rate === 0
-            ? "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400"
-            : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-        )}
-      >
-        {pct}%
-      </span>
-    );
-  }
 
   return (
     <div className="space-y-1.5">
-      {/* Variable chips */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-xs text-muted-foreground mr-1">Insert:</span>
-        <TooltipProvider delayDuration={150}>
-          {visibleStandard.map((v) => {
-            const isZero = fillRates?.[v.token] === 0;
-            return (
-              <Tooltip key={v.token}>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className={cn(
-                      "h-6 px-2 font-mono text-xs",
-                      isZero && "border-red-300 dark:border-red-700"
-                    )}
-                    onClick={() => insertToken(v.token)}
-                    disabled={disabled}
-                  >
-                    + {`{{${v.token}}}`}
-                    <FillRateBadge token={v.token} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-xs">
-                  <p className="text-xs font-medium">{`{{${v.token}}}`}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{v.description}</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Example: <span className="font-medium text-foreground">{v.example}</span>
-                  </p>
-                  {fillRates?.[v.token] !== undefined && fillRates[v.token] < 1 && (
-                    <p className={cn(
-                      "text-xs mt-1 font-medium",
-                      fillRates[v.token] === 0 ? "text-red-500" : "text-amber-500"
-                    )}>
-                      {fillRates[v.token] === 0
-                        ? "No leads have this field — will always send as empty"
-                        : `${Math.round(fillRates[v.token] * 100)}% of leads have this field`}
-                    </p>
-                  )}
-                </TooltipContent>
-              </Tooltip>
-            );
-          })}
-          {visibleCustom.map((token) => {
-            const isZero = fillRates?.[token] === 0;
-            return (
-              <Tooltip key={token}>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className={cn(
-                      "h-6 px-2 font-mono text-xs border-dashed",
-                      isZero && "border-red-300 dark:border-red-700"
-                    )}
-                    onClick={() => insertToken(token)}
-                    disabled={disabled}
-                  >
-                    + {`{{${token}}}`}
-                    <FillRateBadge token={token} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-xs">
-                  <p className="text-xs font-medium">{`{{${token}}}`}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Custom variable — reads from each lead&apos;s{" "}
-                    <code className="text-[10px]">extra_data</code> JSON (set via CSV import).
-                  </p>
-                  {fillRates?.[token] !== undefined && fillRates[token] < 1 && (
-                    <p className={cn(
-                      "text-xs mt-1 font-medium",
-                      fillRates[token] === 0 ? "text-red-500" : "text-amber-500"
-                    )}>
-                      {fillRates[token] === 0
-                        ? "No leads have this field — will always send as empty"
-                        : `${Math.round(fillRates[token] * 100)}% of leads have this field`}
-                    </p>
-                  )}
-                </TooltipContent>
-              </Tooltip>
-            );
-          })}
-        </TooltipProvider>
-        {hiddenCount > 0 && (
-          <button
-            type="button"
-            className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
-            onClick={() => setShowLowFill((v) => !v)}
-          >
-            {showLowFill ? "Hide low-fill" : `+${hiddenCount} under 10% fill`}
-          </button>
-        )}
-      </div>
+      {!hideChips && (
+        <VariableChips
+          onInsert={insertToken}
+          disabled={disabled}
+          customVariables={customVariables}
+          fillRates={fillRates}
+          usedText={value}
+        />
+      )}
 
       {/* Textarea */}
       <textarea
@@ -316,6 +314,7 @@ export const MessageTemplateEditor = forwardRef<
         onChange={(e) => onChange(e.target.value)}
         onSelect={(e) => setCursor(e.currentTarget.selectionStart)}
         onBlur={(e) => setCursor(e.currentTarget.selectionStart)}
+        onFocus={onFocus}
         placeholder={placeholder}
         disabled={disabled}
       />
@@ -353,14 +352,9 @@ export const MessageTemplateEditor = forwardRef<
       )}
 
       {/* Footer: hint + optional char count */}
+      {(!hideHint || showCharLimit) && (
       <div className="flex justify-between text-xs">
-        <span className="text-muted-foreground">
-          A space before a variable (e.g.{" "}
-          <code className="text-[10px]">Hi{" "}{"{{first_name}},"}</code>) is dropped when the
-          field is blank — so you get{" "}
-          <code className="text-[10px]">Hi,</code> not{" "}
-          <code className="text-[10px]">Hi ,</code>.
-        </span>
+        {!hideHint ? <BlankVariableHint /> : <span />}
         {showCharLimit && (
           <span
             className={cn(
@@ -373,10 +367,11 @@ export const MessageTemplateEditor = forwardRef<
             )}
           >
             {charCount} / 300 chars
-            {overLimit && " — LinkedIn will reject this"}
+            {overLimit && " (LinkedIn will reject this)"}
           </span>
         )}
       </div>
+      )}
     </div>
   );
 });

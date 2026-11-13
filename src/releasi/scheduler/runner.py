@@ -129,7 +129,14 @@ async def _apply_followup_intent(
         if account.paused_until and account.paused_until > resume:
             resume = account.paused_until
         await repo.update_account(account, paused_until=resume)
-    if intent.lead_action == LeadAction.MARK_SENT:
+    if intent.lead_action == LeadAction.RESCHEDULE:
+        # Stays FOLLOWUP_SCHEDULED; the dispatcher resumes from the next message.
+        await repo.update_lead(
+            lead,
+            campaign_id_override=campaign.id,
+            scheduled_at=intent.continue_at,
+        )
+    elif intent.lead_action == LeadAction.MARK_SENT:
         validate_transition(lead.status, LeadStatus.FOLLOWUP_SENT)
         await repo.update_lead(
             lead,
@@ -1636,8 +1643,19 @@ async def check_acceptances():
                         continue
 
                     delay_hours = campaign.followup_delay_hours or 0
-                    if delay_hours > 0:
-                        followup_time = datetime.utcnow() + timedelta(hours=delay_hours)
+                    # Sequences with a step-2 delay or a sample limit always go
+                    # through the dispatcher, which owns that logic.
+                    use_dispatcher = (
+                        delay_hours > 0
+                        or (campaign.followup_step2_delay_hours or 0) > 0
+                        or campaign.followup_sample_remaining is not None
+                    )
+                    if use_dispatcher:
+                        # Spread message 1 instead of sending every acceptance
+                        # at the same hour: 0.75x to 1.75x the base delay
+                        # (8h base -> 6 to 14h after the acceptance check).
+                        jittered = delay_hours * random.uniform(0.75, 1.75)
+                        followup_time = datetime.utcnow() + timedelta(hours=jittered)
                         validate_transition(lead.status, LeadStatus.FOLLOWUP_SCHEDULED)
                         await repo.update_lead(
                             lead,
@@ -1844,6 +1862,21 @@ async def dispatch_followups():
                         if not await repo.is_lead_visible(lead.id):
                             continue
 
+                        # Sample mode: once the allowance is used up, don't
+                        # start new sequences (lead stays FOLLOWUP_SCHEDULED).
+                        # Sequences already started still get messages 2/3.
+                        if (
+                            campaign.followup_sample_remaining is not None
+                            and campaign.followup_sample_remaining <= 0
+                            and await repo.get_last_successful_followup_index(lead.id) == 0
+                        ):
+                            logger.info(
+                                "followup.sample_paused",
+                                url=lead.linkedin_url,
+                                campaign=campaign.name,
+                            )
+                            continue
+
                         logger.info(
                             "followup.starting_sequence",
                             url=lead.linkedin_url,
@@ -1853,6 +1886,17 @@ async def dispatch_followups():
                             account, campaign, lead
                         )
                         await repo.add_proxy_mb(account.id, 1.0)  # messaging page
+
+                        if fu_result.get("started_new") and campaign.followup_sample_remaining is not None:
+                            campaign = await repo.update_campaign(
+                                campaign,
+                                followup_sample_remaining=max(0, campaign.followup_sample_remaining - 1),
+                            )
+                            logger.info(
+                                "followup.sample_started",
+                                campaign=campaign.name,
+                                remaining=campaign.followup_sample_remaining,
+                            )
 
                         intent = classify_followup_result(
                             fu_result,
@@ -1868,7 +1912,22 @@ async def dispatch_followups():
                             stop_account = True
                             break
 
-                        if intent.lead_action == LeadAction.MARK_SENT:
+                        if (
+                            campaign.followup_sample_remaining == 0
+                            and intent.lead_action in (LeadAction.MARK_SENT, LeadAction.MARK_ERROR)
+                            and await repo.count_followups_in_progress(campaign.id) == 0
+                        ):
+                            await slack_notify(
+                                f":mag: *Follow-up sample done* for *{campaign.name}*: the sample "
+                                f"sequences have finished. New follow-ups are paused until you clear "
+                                f"the sample limit in the campaign's Follow-up settings."
+                            )
+                            logger.info("followup.sample_complete", campaign=campaign.name)
+
+                        if intent.lead_action == LeadAction.RESCHEDULE:
+                            sent_this_cycle += 1
+                            remaining_cap -= 1
+                        elif intent.lead_action == LeadAction.MARK_SENT:
                             if fu_result.get("success"):
                                 sent_this_cycle += 1
                                 remaining_cap -= 1

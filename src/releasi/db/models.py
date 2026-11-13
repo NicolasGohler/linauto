@@ -165,6 +165,14 @@ class Campaign(Base):
     followup_message_1: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     followup_message_2: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     followup_message_3: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Hours between message 1 and message 2 (randomized ~0.8x-1.3x per lead).
+    # 0 = legacy behaviour: all messages sent together in one visit.
+    # Message 3 always follows message 2 within seconds.
+    followup_step2_delay_hours: Mapped[float] = mapped_column(Float, default=0.0)
+    # Sample mode: number of new follow-up sequences still allowed to start.
+    # NULL = no limit. At 0, no new sequence starts (started ones finish) and
+    # Slack is pinged once the last sample sequence completes.
+    followup_sample_remaining: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     weekend_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     filter_no_photo: Mapped[bool] = mapped_column(Boolean, default=False)
     filter_min_connections: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)

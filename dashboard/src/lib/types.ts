@@ -64,6 +64,10 @@ export interface Campaign {
   followup_message_1: string | null;
   followup_message_2: string | null;
   followup_message_3: string | null;
+  /** Hours between message 1 and message 2 (randomized per lead). 0 = sent together. */
+  followup_step2_delay_hours: number;
+  /** Sample mode: sequences still allowed to start. null = no limit, 0 = paused. */
+  followup_sample_remaining: number | null;
   weekend_enabled: boolean;
   filter_no_photo: boolean;
   filter_min_connections: number | null;

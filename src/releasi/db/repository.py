@@ -914,6 +914,41 @@ class Repository:
         """Fetch a single lead by primary key (for pre-send status re-verification)."""
         return await self.session.get(Lead, lead_id)
 
+    async def spread_overdue_followups(self, campaign_id: str, hours: float = 6) -> int:
+        """Give overdue FOLLOWUP_SCHEDULED assignments random times over the next `hours`."""
+        import random as _random
+        now = datetime.utcnow()
+        rows = (await self.session.execute(
+            select(CampaignLeadAssignment).where(
+                CampaignLeadAssignment.campaign_id == campaign_id,
+                CampaignLeadAssignment.status == LeadStatus.FOLLOWUP_SCHEDULED.value,
+                CampaignLeadAssignment.scheduled_at <= now,
+            )
+        )).scalars().all()
+        for row in rows:
+            row.scheduled_at = now + timedelta(seconds=_random.uniform(0, hours * 3600))
+        await self.session.commit()
+        return len(rows)
+
+    async def count_followups_in_progress(self, campaign_id: str) -> int:
+        """FOLLOWUP_SCHEDULED leads in this campaign that already got message 1."""
+        started = (
+            select(ActionLog.lead_id)
+            .where(
+                ActionLog.campaign_id == campaign_id,
+                ActionLog.action_type == ActionType.FOLLOWUP_MESSAGE,
+                ActionLog.status == ActionLogStatus.SUCCESS,
+            )
+        )
+        result = await self.session.execute(
+            select(func.count()).select_from(CampaignLeadAssignment).where(
+                CampaignLeadAssignment.campaign_id == campaign_id,
+                CampaignLeadAssignment.status == LeadStatus.FOLLOWUP_SCHEDULED.value,
+                CampaignLeadAssignment.lead_id.in_(started),
+            )
+        )
+        return int(result.scalar() or 0)
+
     async def get_last_successful_followup_index(self, lead_id: str) -> int:
         """Return the highest message_index (1-based) successfully sent for this lead.
 

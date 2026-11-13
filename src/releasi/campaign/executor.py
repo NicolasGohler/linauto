@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional, Sequence
 
 import structlog
@@ -17,7 +17,7 @@ from releasi.db.models import (
 from releasi.db.repository import Repository
 from releasi.linkedin.browser import LinkedInBrowser
 from releasi.linkedin.actions import LinkedInActions, ActionStatus
-from releasi.campaign.template import render_template
+from releasi.campaign.template import render_template, missing_variables
 from releasi.campaign.state_machine import validate_transition
 from releasi.linkedin.profile_filter import ProfileFilters
 from releasi.safety.delays import DelayGenerator
@@ -377,6 +377,10 @@ class CampaignExecutor:
             "session_expired": False,
             "network_error": False,
             "reason": None,
+            # Set when message 1 went out on a fresh sequence (sample counter).
+            "started_new": False,
+            # Set when the rest of the sequence is due later (step-2 delay).
+            "continue_at": None,
         }
 
         # ── Guard 0: do-not-contact list ───────────────────────────────────────
@@ -451,16 +455,38 @@ class CampaignExecutor:
         try:
             actions = LinkedInActions(page)
 
+            step2_delay = float(getattr(campaign, "followup_step2_delay_hours", 0) or 0)
+
             for i, msg_template in enumerate(messages):
                 if i < start_from:
                     continue  # already sent in a prior run
 
+                # Never send a message with an empty variable ("they're all .").
+                # Stop the sequence here; earlier messages stand.
+                missing = missing_variables(msg_template, lead)
+                if missing:
+                    logger.warning(
+                        "followup.missing_variables_stop",
+                        url=lead.linkedin_url,
+                        index=i + 1,
+                        missing=missing,
+                    )
+                    result["skipped"] = True
+                    result["reason"] = f"missing_variables:{','.join(missing)}"
+                    break
+
                 msg = render_template(msg_template, lead)
 
+                # First message: skip if any prior conversation exists (as before).
+                # First message of a later visit (step-2 delay): check again, and
+                # stop if the lead replied in the meantime. Later messages in the
+                # same visit: those bubbles are ours, no check.
+                continuing = i == start_from and start_from > 0
                 action_result = await actions.send_message(
                     lead.linkedin_url,
                     msg,
-                    skip_prior_conversation_check=(i > 0),
+                    skip_prior_conversation_check=(i > 0 and not continuing),
+                    conversation_routing="reply_only" if continuing else "skip",
                 )
 
                 if action_result.status == ActionStatus.SKIPPED:
@@ -490,6 +516,20 @@ class CampaignExecutor:
                         index=i + 1,
                         total=len(messages),
                     )
+                    if i == 0:
+                        result["started_new"] = True
+
+                    # Step-2 delay: after message 1, hand the rest back to the
+                    # dispatcher for a later visit (randomized per lead).
+                    if i == 0 and step2_delay > 0 and len(messages) > 1:
+                        hours = step2_delay * random.uniform(0.8, 1.3)
+                        result["continue_at"] = datetime.utcnow() + timedelta(hours=hours)
+                        logger.info(
+                            "followup.next_step_scheduled",
+                            url=lead.linkedin_url,
+                            hours=round(hours, 2),
+                        )
+                        break
 
                     # Wait 10-20s between messages (skip after last)
                     if i < len(messages) - 1:

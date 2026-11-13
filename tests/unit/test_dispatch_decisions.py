@@ -226,3 +226,15 @@ class TestCounterSequencing:
         assert intents[1].account_action == AccountAction.NONE
         assert intents[2].account_action == AccountAction.MARK_COOKIE_EXPIRED
         assert intents[2].stop_account is True
+
+
+def test_followup_partial_sequence_reschedules():
+    from datetime import datetime
+    from releasi.safety.dispatch_decisions import classify_followup_result, LeadAction
+    when = datetime(2026, 11, 14, 10, 0)
+    intent = classify_followup_result(
+        {"success": True, "messages_sent": 1, "continue_at": when}, 2, 1, "acct", "camp"
+    )
+    assert intent.lead_action == LeadAction.RESCHEDULE
+    assert intent.continue_at == when
+    assert intent.consecutive_session == 0 and intent.consecutive_network == 0

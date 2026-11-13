@@ -83,6 +83,25 @@ def render_template(template: str, lead: Lead) -> str:
     return _PATTERN.sub(_replace, template)
 
 
+def _resolve_variable(var_name: str, lead: Lead) -> str:
+    var_name = var_name.lower()
+    attr_name = _FIELD_MAP.get(var_name)
+    if attr_name:
+        return str(getattr(lead, attr_name, None) or "")
+    for key, val in (lead.extra_data or {}).items():
+        if key.lower() == var_name:
+            return "" if val is None else str(val)
+    return ""
+
+
+def missing_variables(template: str, lead: Lead) -> list:
+    """Variables in the template that would render empty for this lead."""
+    return sorted({
+        m.group(2) for m in _PATTERN.finditer(template)
+        if not _resolve_variable(m.group(2), lead).strip()
+    })
+
+
 def extract_variables(template: str) -> list:
     """Extract all {{variable}} names from a template."""
     return [m.group(2) for m in _PATTERN.finditer(template)]
