@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Optional, Sequence
 
-from sqlalchemy import case, select, func, update, or_, not_, exists, and_, union_all
+from sqlalchemy import case, select, func, update, or_, not_, exists, and_, union_all, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from releasi.campaign.importer import normalize_linkedin_url
@@ -2912,6 +2912,9 @@ class Repository:
         return [
             or_(Lead.twitter_url.is_(None), Lead.twitter_url == ""),
             not_(already_searched),
+            # Some legacy rows store a lowercase 'invalid' status the LeadStatus enum
+            # can't load; selecting one crashes the sweep every minute. Skip them.
+            text("leads.status != 'invalid'"),
             or_(legacy_enabled, membership_enabled),
             Lead.first_name.isnot(None),
             Lead.last_name.isnot(None),
