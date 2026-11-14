@@ -522,6 +522,13 @@ function XSection({ lead, onSave, onToggleContacted }: XSectionProps) {
   const candidates: XCandidate[] = taskId && taskData
     ? taskData.x_alternatives ?? []
     : lead.x_alternatives ?? [];
+  const [showAll, setShowAll] = useState(false);
+  // Selected handle first, then best score, then open DMs.
+  const sortedCandidates = [...candidates].sort((a, b) => {
+    const sel = (c: XCandidate) => (handle?.toLowerCase() === c.username.toLowerCase() ? 1 : 0);
+    return sel(b) - sel(a) || b.score - a.score || Number(!!b.can_dm) - Number(!!a.can_dm);
+  });
+  const visibleCandidates = showAll ? sortedCandidates : sortedCandidates.slice(0, COLLAPSED_COUNT);
 
   useEffect(() => {
     if (taskData?.status === "done" && taskData.x_username && !editing && !handle) {
@@ -609,7 +616,9 @@ function XSection({ lead, onSave, onToggleContacted }: XSectionProps) {
             <Pencil className="h-3 w-3" />
           </button>
           {handle && (
-            <button onClick={() => handleSave("")} disabled={saving}
+            <button
+              onClick={() => { if (window.confirm(`Remove @${handle}? It won't be suggested again for this lead.`)) handleSave(""); }}
+              disabled={saving}
               className="opacity-0 group-hover:opacity-100 rounded p-0.5 text-muted-foreground/60 hover:text-destructive transition-all" title="Remove X handle (it won't be suggested again)">
               {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
             </button>
@@ -640,38 +649,33 @@ function XSection({ lead, onSave, onToggleContacted }: XSectionProps) {
         </div>
       )}
 
-      {candidates.length > 0 && (
-        <div className="pt-1 border-t border-zinc-500/20 space-y-1.5">
-          <p className="text-xs text-muted-foreground">{taskId ? "Found — pick the right one:" : "Candidates:"}</p>
-          <div className="space-y-1">
-            {candidates.map((c) => (
-              <button
+      {sortedCandidates.length > 0 && (
+        <div className="pt-2 border-t border-zinc-500/20 space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">
+              {taskId ? "Search results" : "Candidates"} · {sortedCandidates.length}
+            </p>
+            <p className="text-[10px] text-muted-foreground/60">Score ≥ 5 = name + company match</p>
+          </div>
+          <div className="space-y-1.5">
+            {visibleCandidates.map((c) => (
+              <XCandidateCard
                 key={c.username}
-                onClick={() => { setDraft(c.username); setEditing(true); }}
-                title={c.bio || undefined}
-                className={`w-full text-left flex items-center gap-2 rounded-md border px-2 py-1 text-xs transition-colors ${
-                  handle?.toLowerCase() === c.username.toLowerCase()
-                    ? "border-foreground/40 bg-foreground/10"
-                    : "border-zinc-500/30 hover:bg-zinc-500/10"
-                }`}
-              >
-                <span className="font-medium">@{c.username}</span>
-                {c.name && <span className="text-muted-foreground truncate">{c.name}</span>}
-                {c.can_dm != null && (
-                  <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-                    c.can_dm ? "bg-sky-500/15 text-sky-600 dark:text-sky-400" : "bg-zinc-500/15 text-muted-foreground"
-                  }`} title="X reports whether this account accepts DMs from you">
-                    {c.can_dm ? "DM open" : "DM closed"}
-                  </span>
-                )}
-                <span className={`ml-auto shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-                  c.confident || c.score >= 5 ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
-                }`}>
-                  {c.score.toFixed(1)}
-                </span>
-              </button>
+                c={c}
+                selected={handle?.toLowerCase() === c.username.toLowerCase()}
+                busy={saving}
+                onUse={() => handleSave(c.username)}
+              />
             ))}
           </div>
+          {sortedCandidates.length > COLLAPSED_COUNT && (
+            <button
+              onClick={() => setShowAll((v) => !v)}
+              className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors py-0.5"
+            >
+              {showAll ? "Show fewer" : `Show ${sortedCandidates.length - COLLAPSED_COUNT} more`}
+            </button>
+          )}
         </div>
       )}
 
@@ -684,6 +688,76 @@ function XSection({ lead, onSave, onToggleContacted }: XSectionProps) {
         </details>
       )}
       {taskData?.status === "error" && <p className="text-xs text-rose-500">{taskData.error || "Search failed"}</p>}
+    </div>
+  );
+}
+
+const COLLAPSED_COUNT = 4;
+
+function formatCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
+  return String(n);
+}
+
+function XCandidateCard({ c, selected, busy, onUse }: { c: XCandidate; selected: boolean; busy: boolean; onUse: () => void }) {
+  const url = `https://x.com/${c.username}`;
+  const strong = c.confident || c.score >= 5;
+  return (
+    <div className={`rounded-md border px-2.5 py-2 text-xs transition-colors ${
+      selected ? "border-emerald-500/40 bg-emerald-500/5" : "border-zinc-500/25 bg-background/40 hover:border-zinc-500/50"
+    }`}>
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <a href={url} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline" title="Open profile on X">
+              @{c.username}
+            </a>
+            <a href={url} target="_blank" rel="noopener noreferrer" className="text-foreground/50 hover:text-foreground" title="Open profile on X">
+              <ExternalLink className="h-3 w-3" />
+            </a>
+            <CopyButton text={url} label="Copy X URL" />
+          </div>
+          {c.name && <p className="text-muted-foreground truncate">{c.name}</p>}
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          {c.can_dm != null && (
+            <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+              c.can_dm ? "bg-sky-500/15 text-sky-600 dark:text-sky-400" : "bg-zinc-500/15 text-muted-foreground"
+            }`} title="X reports whether this account accepts DMs">
+              {c.can_dm ? "DM open" : "DM closed"}
+            </span>
+          )}
+          <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+            strong ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+          }`} title="Match score">
+            {c.score.toFixed(1)}
+          </span>
+        </div>
+      </div>
+      {c.bio ? (
+        <p className="mt-1 text-foreground/75 leading-snug whitespace-pre-line break-words">{c.bio}</p>
+      ) : (
+        <p className="mt-1 text-muted-foreground/50 italic">No bio</p>
+      )}
+      <div className="mt-1.5 flex items-center justify-between gap-2">
+        <span className="text-[10px] text-muted-foreground/70">
+          {c.followers != null ? `${formatCount(c.followers)} followers` : ""}
+        </span>
+        {selected ? (
+          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+            <Check className="h-3 w-3" /> Selected
+          </span>
+        ) : (
+          <button
+            onClick={onUse}
+            disabled={busy}
+            className="rounded-full border border-zinc-500/30 px-2 py-0.5 text-[11px] font-medium text-foreground/80 hover:bg-zinc-500/10 disabled:opacity-40 transition-colors"
+          >
+            Use this
+          </button>
+        )}
+      </div>
     </div>
   );
 }

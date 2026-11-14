@@ -382,6 +382,7 @@ def _finish(result: XFindResult, scored: dict[str, tuple[float, dict]]) -> XFind
             "name": best_p.get("name") or "",
             "bio": (best_p.get("bio") or "")[:160],
             "can_dm": best_p.get("can_dm"),
+            "followers": best_p.get("followers"),
         }
         ranked = ranked[1:]
         result.logs.append(f"Best match: @{result.best_match} (score={best_s:.1f})")
@@ -394,6 +395,7 @@ def _finish(result: XFindResult, scored: dict[str, tuple[float, dict]]) -> XFind
             "name": p.get("name") or "",
             "bio": (p.get("bio") or "")[:160],
             "can_dm": p.get("can_dm"),
+            "followers": p.get("followers"),
         }
         for s, p in ranked
         if s >= MIN_ALT_SCORE

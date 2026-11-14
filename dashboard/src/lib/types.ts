@@ -276,6 +276,7 @@ export interface XCandidate {
   name?: string;
   bio?: string;
   can_dm?: boolean | null;
+  followers?: number | null;
   confident?: boolean;
 }
 
