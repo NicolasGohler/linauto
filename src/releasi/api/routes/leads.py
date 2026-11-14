@@ -653,7 +653,8 @@ async def update_lead_profile(
         new_twitter = normalize_twitter_url(raw) if raw else None
         updates["twitter_url"] = new_twitter
         if new_twitter:
-            updates["x_alternatives"] = None  # choice made
+            # Keep x_alternatives: the candidate list stays visible so a wrong pick
+            # can be switched back without re-running the (paid) search.
             await repo.log_lead_event(lead_id, "x_saved", {"url": new_twitter}, actor_user_id=actor_user_id)
             await repo.session.commit()
         elif old_twitter:
