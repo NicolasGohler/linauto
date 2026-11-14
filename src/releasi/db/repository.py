@@ -2473,6 +2473,7 @@ class Repository:
         has_email: Optional[bool] = None,
         tg_contacted: Optional[bool] = None,
         x_contacted: Optional[bool] = None,
+        x_dm_open: Optional[bool] = None,
         include_archived: bool = False,
     ) -> tuple:
         """Return (leads, total_count) across all lists/campaigns."""
@@ -2644,6 +2645,17 @@ class Repository:
         elif x_contacted is False:
             stmt = stmt.where(Lead.x_contacted_at.is_(None))
             count_stmt = count_stmt.where(Lead.x_contacted_at.is_(None))
+
+        if x_dm_open is True:
+            # The saved handle's candidate entry carries X's canDm flag.
+            dm_open = text(
+                "leads.twitter_url IS NOT NULL AND EXISTS ("
+                "SELECT 1 FROM json_each(leads.x_alternatives) j "
+                "WHERE json_extract(j.value, '$.can_dm') = 1 "
+                "AND lower(rtrim(leads.twitter_url, '/')) LIKE '%/' || lower(json_extract(j.value, '$.username')))"
+            )
+            stmt = stmt.where(dm_open)
+            count_stmt = count_stmt.where(dm_open)
 
         total = (await self.session.execute(count_stmt)).scalar_one()
 

@@ -234,6 +234,7 @@ export default function GlobalLeadsPage() {
   // Social / outreach filter chips
   const [hasTelegram, setHasTelegram] = useState<boolean | undefined>();
   const [hasTwitter, setHasTwitter] = useState<boolean | undefined>();
+  const [xDmOpen, setXDmOpen] = useState<boolean | undefined>();
   const [hasEmail, setHasEmail] = useState<boolean | undefined>();
   const [tgContacted, setTgContacted] = useState<boolean | undefined>();
   const [xContacted, setXContacted] = useState<boolean | undefined>();
@@ -277,6 +278,7 @@ export default function GlobalLeadsPage() {
     has_email: hasEmail,
     tg_contacted: tgContacted,
     x_contacted: xContacted,
+    x_dm_open: xDmOpen,
   });
   const deleteLead = useDeleteLead();
   const restoreLead = useRestoreLead();
@@ -298,13 +300,13 @@ export default function GlobalLeadsPage() {
     setPage(1);
   }
 
-  const hasActiveFilters = Boolean(debouncedSearch) || !setsEqual(statusFilter, DEFAULT_STATUSES) || listFilter.size > 0 || campaignFilter || skipReasonFilter || lastActivityAfter || lastActivityBefore || sortBy || hasTelegram !== undefined || hasTwitter !== undefined || hasEmail !== undefined || tgContacted !== undefined || xContacted !== undefined;
+  const hasActiveFilters = Boolean(debouncedSearch) || !setsEqual(statusFilter, DEFAULT_STATUSES) || listFilter.size > 0 || campaignFilter || skipReasonFilter || lastActivityAfter || lastActivityBefore || sortBy || hasTelegram !== undefined || hasTwitter !== undefined || hasEmail !== undefined || tgContacted !== undefined || xContacted !== undefined || xDmOpen !== undefined;
 
   function resetFilters() {
     setSearch(""); setStatusFilter(new Set(DEFAULT_STATUSES)); setListFilter(new Set()); setCampaignFilter(undefined);
     setSkipReasonFilter(""); setLastActivityAfter(""); setLastActivityBefore(""); setSortBy(null); setSortDir("desc"); setPage(1);
     setSelected(new Set());
-    setHasTelegram(undefined); setHasTwitter(undefined); setHasEmail(undefined); setTgContacted(undefined); setXContacted(undefined);
+    setHasTelegram(undefined); setHasTwitter(undefined); setHasEmail(undefined); setTgContacted(undefined); setXContacted(undefined); setXDmOpen(undefined);
   }
 
   function toggleChip<T>(current: T | undefined, value: T, setter: (v: T | undefined) => void) {
@@ -411,6 +413,7 @@ export default function GlobalLeadsPage() {
             { label: "TG Not Contacted", icon: null, active: tgContacted === false, onClick: () => toggleChip(tgContacted, false, setTgContacted) },
             { label: "X Contacted", icon: <CheckCircle2 className="h-3 w-3" />, active: xContacted === true, onClick: () => toggleChip(xContacted, true, setXContacted) },
             { label: "X Not Contacted", icon: null, active: xContacted === false, onClick: () => toggleChip(xContacted, false, setXContacted) },
+            { label: "X DM Open", icon: <XIcon className="h-3 w-3" />, active: xDmOpen === true, onClick: () => toggleChip(xDmOpen, true, setXDmOpen) },
           ] as { label: string; icon: React.ReactNode; active: boolean; onClick: () => void }[]
         ).map((chip) => (
           <button

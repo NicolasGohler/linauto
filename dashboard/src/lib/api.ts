@@ -375,6 +375,7 @@ export const fetchGlobalLeads = (params?: {
   has_email?: boolean;
   tg_contacted?: boolean;
   x_contacted?: boolean;
+  x_dm_open?: boolean;
 }) => {
   const sp = new URLSearchParams();
   if (params?.include_archived) sp.set("include_archived", "true");
@@ -403,6 +404,7 @@ export const fetchGlobalLeads = (params?: {
   if (params?.has_email !== undefined) sp.set("has_email", String(params.has_email));
   if (params?.tg_contacted !== undefined) sp.set("tg_contacted", String(params.tg_contacted));
   if (params?.x_contacted !== undefined) sp.set("x_contacted", String(params.x_contacted));
+  if (params?.x_dm_open) sp.set("x_dm_open", "true");
   const qs = sp.toString();
   return apiFetch<LeadPage>(`/leads${qs ? `?${qs}` : ""}`);
 };

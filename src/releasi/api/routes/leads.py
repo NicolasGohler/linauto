@@ -497,6 +497,7 @@ async def list_leads_global(
     has_email: Optional[bool] = Query(None),
     tg_contacted: Optional[bool] = Query(None),
     x_contacted: Optional[bool] = Query(None),
+    x_dm_open: Optional[bool] = Query(None),
     include_archived: bool = Query(False),
     repo: Repository = Depends(get_repo),
 ):
@@ -519,6 +520,7 @@ async def list_leads_global(
         has_email=has_email,
         tg_contacted=tg_contacted,
         x_contacted=x_contacted,
+        x_dm_open=x_dm_open,
         include_archived=include_archived,
     )
 

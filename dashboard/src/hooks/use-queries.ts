@@ -389,6 +389,7 @@ export function useGlobalLeads(params?: {
   has_email?: boolean;
   tg_contacted?: boolean;
   x_contacted?: boolean;
+  x_dm_open?: boolean;
 }) {
   return useQuery({
     queryKey: ["global-leads", params],
