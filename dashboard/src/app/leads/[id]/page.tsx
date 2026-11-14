@@ -599,7 +599,7 @@ function XSection({ lead, onSave, onToggleContacted }: XSectionProps) {
               <a href={`https://x.com/${handle}`} target="_blank" rel="noopener noreferrer" className="text-foreground/60 hover:text-foreground transition-colors" title="Open on X">
                 <ExternalLink className="h-3 w-3" />
               </a>
-              <CopyButton text={handle} label="Copy handle" />
+              <CopyButton text={`https://x.com/${handle}`} label="Copy X URL" />
             </>
           ) : (
             <span className="text-sm text-muted-foreground/50 italic">{isSearching ? "Searching…" : "No handle yet"}</span>
@@ -1070,6 +1070,7 @@ export default function LeadDetailPage() {
   const companyXRaw = lead.extra_data?.company_x_url;
   const companyX = typeof companyXRaw === "string" && companyXRaw ? companyXRaw : null;
   const extraEntries = Object.entries(lead.extra_data ?? {}).filter(([k]) => k !== "company_x_url");
+  const outreachMessage = buildOutreachMessage(lead.extra_data);
 
   const twitterHandle = lead.twitter_url
     ? lead.twitter_url.replace(/.*x\.com\//, "").replace(/.*twitter\.com\//, "")
@@ -1314,10 +1315,17 @@ export default function LeadDetailPage() {
           </div>
 
           {/* Extra data if any */}
-          {extraEntries.length > 0 && (
+          {(extraEntries.length > 0 || outreachMessage) && (
             <div className="rounded-xl border bg-card p-4">
               <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Additional Data</h2>
               <div className="space-y-1.5">
+                {outreachMessage && (
+                  <div className="flex gap-2 text-sm">
+                    <span className="text-muted-foreground min-w-[120px]">Message</span>
+                    <p className="flex-1 whitespace-pre-wrap">{outreachMessage}</p>
+                    <CopyButton text={outreachMessage} label="Copy message" />
+                  </div>
+                )}
                 {extraEntries.map(([k, v]) => (
                   <div key={k} className="flex gap-2 text-sm">
                     <span className="text-muted-foreground min-w-[120px] capitalize">{k.replace(/_/g, " ")}</span>
@@ -1331,6 +1339,17 @@ export default function LeadDetailPage() {
       </div>
     </div>
   );
+}
+
+/** Outreach message rendered from the lead's signal data (never stored).
+ *  Returns null unless signal_line, example_1 and example_2 are all present. */
+function buildOutreachMessage(extra: Record<string, unknown> | null | undefined): string | null {
+  const get = (k: string) => (typeof extra?.[k] === "string" ? (extra[k] as string).trim() : "");
+  const signal = get("signal_line");
+  const ex1 = get("example_1");
+  const ex2 = get("example_2");
+  if (!signal || !ex1 || !ex2) return null;
+  return `I found companies that need you guys, they're all ${signal}\n\n${ex1} and ${ex2} are from this week should I send you more with contact info?`;
 }
 
 /** Renders an Additional Data value, collapsing long strings (e.g. the
