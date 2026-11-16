@@ -141,6 +141,20 @@ class CampaignExecutor:
             action_result = await actions.send_connection_request(lead.linkedin_url, message, filters=filters)
             result["error"] = action_result.reason
 
+            # Observation only: read signals from the profile page already open
+            # (no navigation, scroll or click). Never affects the invite outcome.
+            if action_result.status in (ActionStatus.SUCCESS, ActionStatus.SKIPPED):
+                try:
+                    from releasi.linkedin import profile_signals
+                    signals = await profile_signals.capture(page, lead.linkedin_url)
+                    if signals is not None:
+                        signals["outcome"] = action_result.status.value
+                        signals["reason"] = action_result.reason
+                        signals["campaign_id"] = campaign.id
+                        await self.repo.log_lead_event(lead.id, "profile_signals", signals)
+                except Exception as e:
+                    logger.debug("executor.profile_signals_failed", error=str(e)[:200])
+
             if action_result.status == ActionStatus.SUCCESS:
                 try:
                     validate_transition(lead.status, LeadStatus.CONNECTION_REQUESTED)
