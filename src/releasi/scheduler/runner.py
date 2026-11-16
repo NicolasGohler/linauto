@@ -1603,12 +1603,14 @@ async def check_acceptances():
                         try:
                             slug = lead.linkedin_url.split("/in/")[-1].strip("/")
                             info = await contact_actions.get_contact_info(slug)
-                            if info.get("email") or info.get("phone"):
+                            # Never overwrite the imported (work) email or blank existing values.
+                            from releasi.campaign.contact_info import contact_info_updates
+                            _ci_updates = contact_info_updates(lead, info)
+                            if _ci_updates:
                                 await repo.update_lead(
                                     lead,
                                     campaign_id_override=_campaign.id,
-                                    email=info.get("email"),
-                                    phone=info.get("phone"),
+                                    **_ci_updates,
                                 )
                                 logger.info(
                                     "acceptance.contact_info_saved",
