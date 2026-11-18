@@ -149,15 +149,15 @@ export default function BroadcastsPage() {
                         </span>
                         <span>{p.donePct}%</span>
                       </div>
-                      <div className="flex h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                      <div className="flex h-2 w-full gap-px rounded-full bg-muted overflow-hidden">
                         {p.completePct > 0 && (
-                          <div className="h-full bg-success" style={{ width: `${p.completePct}%` }} />
+                          <div className="h-full bg-progress-done" style={{ width: `${p.completePct}%` }} />
                         )}
                         {p.sentPct > 0 && (
-                          <div className="h-full bg-info" style={{ width: `${p.sentPct}%` }} />
+                          <div className="h-full bg-progress-active" style={{ width: `${p.sentPct}%` }} />
                         )}
                         {p.skippedPct > 0 && (
-                          <div className="h-full bg-neutral" style={{ width: `${p.skippedPct}%` }} />
+                          <div className="h-full bg-progress-other" style={{ width: `${p.skippedPct}%` }} />
                         )}
                       </div>
                     </div>

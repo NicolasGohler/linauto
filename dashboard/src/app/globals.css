@@ -60,6 +60,9 @@
   --color-neutral: var(--neutral);
   --color-neutral-soft: var(--neutral-soft);
   --color-neutral-line: var(--neutral-line);
+  --color-progress-done: var(--progress-done);
+  --color-progress-active: var(--progress-active);
+  --color-progress-other: var(--progress-other);
   --shadow-soft: 0 10px 24px -18px rgb(28 25 17 / 0.35);
   --shadow-float: 0 14px 32px -20px rgb(28 25 17 / 0.45);
   --radius-sm: calc(var(--radius) - 4px);
@@ -120,6 +123,11 @@
   --neutral: #6d695e;
   --neutral-soft: #e6e1d4;
   --neutral-line: var(--hairline);
+
+  /* Progress bars: one green family, dark = done, light = in flight; warm stone = closed out */
+  --progress-done: var(--forest);
+  --progress-active: #9dbb91;
+  --progress-other: #b3a78c;
 
   --chart-1: #234a3b;
   --chart-2: #8aa585;

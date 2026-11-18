@@ -245,10 +245,10 @@ function CampaignCard({
               </span>
               <span>{progress.acceptedPct + progress.sentPct + progress.otherPct}%</span>
             </div>
-            <div className="flex h-1.5 w-full rounded-full bg-muted overflow-hidden">
-              {progress.acceptedPct > 0 && <div className="h-full bg-success transition-all" style={{ width: `${progress.acceptedPct}%` }} />}
-              {progress.sentPct > 0 && <div className="h-full bg-info transition-all" style={{ width: `${progress.sentPct}%` }} />}
-              {progress.otherPct > 0 && <div className="h-full bg-neutral transition-all" style={{ width: `${progress.otherPct}%` }} />}
+            <div className="flex h-2 w-full gap-px rounded-full bg-muted overflow-hidden">
+              {progress.acceptedPct > 0 && <div className="h-full bg-progress-done transition-all" style={{ width: `${progress.acceptedPct}%` }} title={`Accepted: ${progress.accepted}`} />}
+              {progress.sentPct > 0 && <div className="h-full bg-progress-active transition-all" style={{ width: `${progress.sentPct}%` }} title={`Requested, waiting: ${progress.sent}`} />}
+              {progress.otherPct > 0 && <div className="h-full bg-progress-other transition-all" style={{ width: `${progress.otherPct}%` }} title={`Skipped or error: ${progress.other}`} />}
             </div>
           </div>
           <div className="flex gap-2 pt-1">
