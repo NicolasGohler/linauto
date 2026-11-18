@@ -1151,7 +1151,7 @@ export default function LeadDetailPage() {
     : null;
 
   return (
-    <div className="max-w-5xl mx-auto px-6 py-6 space-y-6">
+    <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
       {/* Header */}
       <div className="flex items-start gap-4">
         <Link
@@ -1243,9 +1243,9 @@ export default function LeadDetailPage() {
       </div>
 
       {/* Body */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px] xl:grid-cols-[minmax(0,1fr)_500px] gap-6">
         {/* Left (main): editable profile + notes & activity */}
-        <div className="lg:col-span-2 space-y-4">
+        <div className="min-w-0 space-y-4">
 
           {/* Profile card */}
           <div className="rounded-xl border bg-card p-4">
@@ -1337,7 +1337,7 @@ export default function LeadDetailPage() {
         </div>
 
         {/* Right: social & links + additional data */}
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
 
           {/* Social card */}
           <div className="rounded-xl border bg-card p-4 space-y-1">
