@@ -48,16 +48,16 @@ function cookieAge(status: ScraperStatus): {
 
 const colorClasses = {
   green: {
-    badge: "bg-green-500/15 text-green-400 border-green-500/30",
-    icon: "text-green-400",
+    badge: "bg-success-soft text-success border-success-line",
+    icon: "text-success",
   },
   yellow: {
-    badge: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30",
-    icon: "text-yellow-400",
+    badge: "bg-warning-soft text-warning border-warning-line",
+    icon: "text-warning",
   },
   red: {
-    badge: "bg-red-500/15 text-red-400 border-red-500/30",
-    icon: "text-red-400",
+    badge: "bg-danger-soft text-danger border-danger-line",
+    icon: "text-danger",
   },
 };
 
@@ -153,8 +153,8 @@ function ScraperCard({ status }: { status: ScraperStatus }) {
           {loading ? "Starting..." : "Refresh Login"}
         </Button>
       ) : (
-        <div className="rounded-md border border-green-500/30 bg-green-500/10 p-3 space-y-2.5">
-          <p className="text-xs font-medium text-green-400">
+        <div className="rounded-md border border-success-line bg-success-soft/70 p-3 space-y-2.5">
+          <p className="text-xs font-medium text-success">
             Browser open — log in, then save cookies.
           </p>
           <div className="flex gap-2">
@@ -294,10 +294,10 @@ function FundraisingRunPanel() {
     : status ? "Idle" : "Unknown";
 
   const badgeClasses: Record<BadgeVariant, string> = {
-    blue: "bg-blue-500/15 text-blue-400 border-blue-500/30",
-    green: "bg-green-500/15 text-green-400 border-green-500/30",
-    red: "bg-red-500/15 text-red-400 border-red-500/30",
-    yellow: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30",
+    blue: "bg-info-soft text-info border-info-line",
+    green: "bg-success-soft text-success border-success-line",
+    red: "bg-danger-soft text-danger border-danger-line",
+    yellow: "bg-warning-soft text-warning border-warning-line",
     gray: "bg-muted text-muted-foreground border-border",
   };
 
@@ -339,8 +339,8 @@ function FundraisingRunPanel() {
         <span className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium ${badgeClasses[badgeVariant]}`}>
           {livelyRunning && (
             <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-info opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-info" />
             </span>
           )}
           {badgeLabel}
@@ -362,8 +362,8 @@ function FundraisingRunPanel() {
       {(effectiveExit === "error" || effectiveExit === "timeout" || effectiveExit === "stale") && status?.error && (
         <div className={`rounded-md border px-3 py-2 text-xs ${
           effectiveExit === "error"
-            ? "border-red-500/30 bg-red-500/10 text-red-400"
-            : "border-yellow-500/30 bg-yellow-500/10 text-yellow-400"
+            ? "border-danger-line bg-danger-soft/70 text-danger"
+            : "border-warning-line bg-warning-soft/70 text-warning"
         }`}>
           {status.error}
         </div>
@@ -390,12 +390,12 @@ function FundraisingRunPanel() {
               {lines.map((line, i) => (
                 <div key={i} className={
                   line.includes("ERROR") || line.includes("FATAL") || line.includes("⚠")
-                    ? "text-red-400"
+                    ? "text-danger"
                     : line.includes("✓") || line.includes("success") || line.includes("complete")
-                    ? "text-green-400"
+                    ? "text-success"
                     : line.includes("Rate limit") || line.includes("waiting") || line.includes("⏳")
-                    ? "text-yellow-400"
-                    : "text-green-300/80"
+                    ? "text-warning"
+                    : "text-success/80"
                 }>
                   {line || " "}
                 </div>
@@ -426,7 +426,7 @@ function formatFloodWait(seconds: number): string {
 function SweepResultRow({ item }: { item: TgSweepResult }) {
   return (
     <div className="flex items-center gap-3 py-2 border-b border-border/40 last:border-0">
-      <div className={`shrink-0 ${item.found ? "text-green-400" : "text-muted-foreground/40"}`}>
+      <div className={`shrink-0 ${item.found ? "text-success" : "text-muted-foreground/40"}`}>
         {item.found
           ? <Search className="h-3.5 w-3.5" />
           : <Minus className="h-3.5 w-3.5" />
@@ -442,7 +442,7 @@ function SweepResultRow({ item }: { item: TgSweepResult }) {
       </div>
       <div className="shrink-0 text-right">
         {item.found && item.telegram_username ? (
-          <span className="text-xs text-green-400 font-mono">@{item.telegram_username}</span>
+          <span className="text-xs text-success font-mono">@{item.telegram_username}</span>
         ) : (
           <span className="text-xs text-muted-foreground/50">Not found</span>
         )}
@@ -499,24 +499,24 @@ function TelegramSweepPanel() {
 
   const badgeContent = unreachable
     ? (
-      <span className="flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium bg-red-500/15 text-red-400 border-red-500/30">
+      <span className="flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium bg-danger-soft text-danger border-danger-line">
         <AlertCircle className="h-3 w-3" />
         Backend unreachable
       </span>
     )
     : isProcessing
     ? (
-      <span className="flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium bg-blue-500/15 text-blue-400 border-blue-500/30">
+      <span className="flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium bg-info-soft text-info border-info-line">
         <span className="relative flex h-2 w-2">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-info opacity-75" />
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-info" />
         </span>
         Processing
       </span>
     )
     : isFlooding
     ? (
-      <span className="flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium bg-yellow-500/15 text-yellow-400 border-yellow-500/30">
+      <span className="flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium bg-warning-soft text-warning border-warning-line">
         <Clock className="h-3 w-3" />
         Flood Wait · {formatFloodWait(status!.flood_wait_remaining_seconds!)}
       </span>
@@ -561,7 +561,7 @@ function TelegramSweepPanel() {
           </span>
         )}
         {unreachable && (
-          <span className="text-xs text-red-400/80">
+          <span className="text-xs text-danger/80">
             Can&apos;t reach the status endpoint — the sweeper may still be running.
           </span>
         )}
@@ -573,10 +573,10 @@ function TelegramSweepPanel() {
           <span className="rounded-full border border-border bg-muted/50 px-3 py-1 text-xs text-muted-foreground">
             {status.pending_count.toLocaleString()} pending
           </span>
-          <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-xs text-blue-400">
+          <span className="rounded-full border border-info-line bg-info-soft/70 px-3 py-1 text-xs text-info">
             {status.searched_count.toLocaleString()} searched
           </span>
-          <span className="rounded-full border border-green-500/30 bg-green-500/10 px-3 py-1 text-xs text-green-400 flex items-center gap-1">
+          <span className="rounded-full border border-success-line bg-success-soft/70 px-3 py-1 text-xs text-success flex items-center gap-1">
             <CheckCircle2 className="h-3 w-3" />
             {status.found_count.toLocaleString()} found
           </span>

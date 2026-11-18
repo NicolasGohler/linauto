@@ -41,23 +41,23 @@ const EVENT_GROUPS: Record<string, { label: string; types: string[] }> = {
 
 type EventMeta = { label: string; Icon: React.ElementType; color: string };
 const EVENT_META: Record<string, EventMeta> = {
-  connection_request:       { label: "Connection request",    Icon: Send,          color: "text-blue-400" },
-  followup_message:         { label: "Follow-up",             Icon: MessageSquare,  color: "text-indigo-400" },
-  acceptance_check_summary: { label: "Acceptance check",      Icon: UserCheck,      color: "text-green-400" },
-  check_acceptance:         { label: "Acceptance check",      Icon: UserCheck,      color: "text-green-400" },
-  limit_detected:           { label: "Limit detected",        Icon: AlertCircle,    color: "text-orange-400" },
-  cooldown_started:         { label: "Cooldown started",      Icon: AlertCircle,    color: "text-yellow-400" },
-  cooldown_ended:           { label: "Cooldown ended",        Icon: RefreshCw,      color: "text-green-400" },
-  tg_sweep_searched:        { label: "TG sweep",              Icon: Search,         color: "text-violet-400" },
-  telegram_found:           { label: "Telegram found",        Icon: Zap,            color: "text-violet-500" },
-  phone_enriched:           { label: "Phone enriched",        Icon: Zap,            color: "text-violet-500" },
-  fundraising_import:       { label: "Fundraising import",    Icon: RefreshCw,      color: "text-cyan-400" },
-  error:                    { label: "Error",                 Icon: AlertCircle,    color: "text-red-400" },
+  connection_request:       { label: "Connection request",    Icon: Send,          color: "text-info" },
+  followup_message:         { label: "Follow-up",             Icon: MessageSquare,  color: "text-info" },
+  acceptance_check_summary: { label: "Acceptance check",      Icon: UserCheck,      color: "text-success" },
+  check_acceptance:         { label: "Acceptance check",      Icon: UserCheck,      color: "text-success" },
+  limit_detected:           { label: "Limit detected",        Icon: AlertCircle,    color: "text-warning" },
+  cooldown_started:         { label: "Cooldown started",      Icon: AlertCircle,    color: "text-warning" },
+  cooldown_ended:           { label: "Cooldown ended",        Icon: RefreshCw,      color: "text-success" },
+  tg_sweep_searched:        { label: "TG sweep",              Icon: Search,         color: "text-plum" },
+  telegram_found:           { label: "Telegram found",        Icon: Zap,            color: "text-plum" },
+  phone_enriched:           { label: "Phone enriched",        Icon: Zap,            color: "text-plum" },
+  fundraising_import:       { label: "Fundraising import",    Icon: RefreshCw,      color: "text-info" },
+  error:                    { label: "Error",                 Icon: AlertCircle,    color: "text-danger" },
   // Manual (human) actions
-  note_added:               { label: "Note",                  Icon: StickyNote,     color: "text-amber-400" },
-  tg_contacted:             { label: "Telegram outreach",     Icon: CheckCircle2,   color: "text-emerald-400" },
+  note_added:               { label: "Note",                  Icon: StickyNote,     color: "text-warning" },
+  tg_contacted:             { label: "Telegram outreach",     Icon: CheckCircle2,   color: "text-success" },
   tg_contacted_cleared:     { label: "Outreach cleared",      Icon: UserX,          color: "text-muted-foreground" },
-  telegram_saved:           { label: "Telegram handle set",   Icon: AtSign,         color: "text-emerald-400" },
+  telegram_saved:           { label: "Telegram handle set",   Icon: AtSign,         color: "text-success" },
   telegram_removed:         { label: "Telegram handle removed", Icon: AtSign,       color: "text-muted-foreground" },
 };
 
@@ -84,8 +84,8 @@ function absoluteTime(iso: string): string {
 
 function statusColor(status?: string | null): string {
   if (!status) return "";
-  if (status === "success") return "text-green-400";
-  if (status === "failed")  return "text-red-400";
+  if (status === "success") return "text-success";
+  if (status === "failed")  return "text-danger";
   return "text-muted-foreground";
 }
 
@@ -132,17 +132,17 @@ function ActivityRow({ item }: { item: ActivityItem }) {
             )
           )}
           {item.account_name && (
-            <span className="text-xs bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded truncate max-w-[120px]">
+            <span className="text-xs bg-info-soft/70 text-info px-1.5 py-0.5 rounded truncate max-w-[120px]">
               {item.account_name}
             </span>
           )}
           {item.actor_name && (
-            <span className="text-xs bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded truncate max-w-[120px]">
+            <span className="text-xs bg-success-soft/70 text-success px-1.5 py-0.5 rounded truncate max-w-[120px]">
               by {item.actor_name}
             </span>
           )}
           {item.campaign_name && (
-            <span className="text-xs bg-violet-500/10 text-violet-400 px-1.5 py-0.5 rounded truncate max-w-[120px]">
+            <span className="text-xs bg-plum-soft/70 text-plum px-1.5 py-0.5 rounded truncate max-w-[120px]">
               {item.campaign_name}
             </span>
           )}
@@ -386,7 +386,7 @@ export default function ActivityPage() {
             <RefreshCw className="h-4 w-4 animate-spin mr-2" /> Loading…
           </div>
         ) : error ? (
-          <div className="flex flex-col items-center justify-center py-16 text-sm text-red-400">
+          <div className="flex flex-col items-center justify-center py-16 text-sm text-danger">
             <AlertCircle className="h-5 w-5 mb-2" />
             Failed to load activity: {error}
           </div>

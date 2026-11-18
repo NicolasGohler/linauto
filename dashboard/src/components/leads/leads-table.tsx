@@ -159,7 +159,7 @@ function EmailCopyButton({ email }: { email: string }) {
       <Tooltip>
         <TooltipTrigger asChild>
           <button onClick={handleCopy} className="ml-1.5 inline-flex items-center text-muted-foreground/60 hover:text-muted-foreground transition-colors">
-            {copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Mail className="h-3 w-3" />}
+            {copied ? <Check className="h-3 w-3 text-success" /> : <Mail className="h-3 w-3" />}
           </button>
         </TooltipTrigger>
         <TooltipContent side="top" className="text-xs">{copied ? "Copied!" : email}</TooltipContent>
@@ -412,7 +412,7 @@ export function LeadsTable({ campaignId, timezone, assignedLists, campaignName }
       {/* Table */}
       <div className="rounded-md border max-h-[600px] overflow-auto">
         <Table>
-          <TableHeader className="sticky top-0 z-10 bg-background shadow-[0_1px_0_0_hsl(var(--border))]">
+          <TableHeader className="sticky top-0 z-10 bg-background shadow-[0_1px_0_0_var(--border)]">
             <TableRow>
               <TableHead className="w-8">
                 <input
@@ -548,7 +548,7 @@ export function LeadsTable({ campaignId, timezone, assignedLists, campaignName }
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <span className="inline-flex justify-center">
-                              <MessageSquare className="h-3.5 w-3.5 text-emerald-500" />
+                              <MessageSquare className="h-3.5 w-3.5 text-success" />
                             </span>
                           </TooltipTrigger>
                           <TooltipContent side="top" className="text-xs">

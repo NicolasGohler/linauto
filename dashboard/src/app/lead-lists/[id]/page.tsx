@@ -46,7 +46,7 @@ function EmailCopyButton({ email }: { email: string }) {
       <Tooltip>
         <TooltipTrigger asChild>
           <button onClick={handleCopy} className="ml-1.5 inline-flex items-center text-muted-foreground/60 hover:text-muted-foreground transition-colors">
-            {copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Mail className="h-3 w-3" />}
+            {copied ? <Check className="h-3 w-3 text-success" /> : <Mail className="h-3 w-3" />}
           </button>
         </TooltipTrigger>
         <TooltipContent side="top" className="text-xs">{copied ? "Copied!" : email}</TooltipContent>
@@ -252,28 +252,28 @@ export default function LeadListDetailPage({
               label: "Acceptance Rate",
               value: stats.acceptance_rate,
               sub: `${Math.round((stats.acceptance_rate / 100) * stats.total)} connected`,
-              color: stats.acceptance_rate >= 30 ? "text-emerald-500" : stats.acceptance_rate >= 15 ? "text-amber-500" : "text-red-400",
+              color: stats.acceptance_rate >= 30 ? "text-success" : stats.acceptance_rate >= 15 ? "text-warning" : "text-danger",
             },
             {
               label: "Email Coverage",
               value: stats.email_coverage,
               sub: `${Math.round((stats.email_coverage / 100) * stats.total)} leads`,
-              color: stats.email_coverage >= 50 ? "text-emerald-500" : stats.email_coverage >= 20 ? "text-amber-500" : "text-muted-foreground",
+              color: stats.email_coverage >= 50 ? "text-success" : stats.email_coverage >= 20 ? "text-warning" : "text-muted-foreground",
             },
             {
               label: "Telegram Coverage",
               value: stats.tg_coverage,
               sub: stats.tg_contacted_rate > 0 ? `${stats.tg_contacted_rate}% contacted` : `${Math.round((stats.tg_coverage / 100) * stats.total)} leads`,
-              color: stats.tg_coverage >= 30 ? "text-emerald-500" : stats.tg_coverage >= 10 ? "text-amber-500" : "text-muted-foreground",
+              color: stats.tg_coverage >= 30 ? "text-success" : stats.tg_coverage >= 10 ? "text-warning" : "text-muted-foreground",
             },
             {
               label: "Twitter/X Coverage",
               value: stats.twitter_coverage,
               sub: stats.x_contacted_rate > 0 ? `${stats.x_contacted_rate}% contacted` : `${Math.round((stats.twitter_coverage / 100) * stats.total)} leads`,
-              color: stats.twitter_coverage >= 30 ? "text-emerald-500" : stats.twitter_coverage >= 10 ? "text-amber-500" : "text-muted-foreground",
+              color: stats.twitter_coverage >= 30 ? "text-success" : stats.twitter_coverage >= 10 ? "text-warning" : "text-muted-foreground",
             },
           ].map((card) => (
-            <div key={card.label} className="rounded-xl border bg-card px-4 py-3">
+            <div key={card.label} className="rounded-[14px] border border-border/80 bg-card shadow-soft px-4 py-3">
               <p className="text-xs text-muted-foreground">{card.label}</p>
               <p className={`text-2xl font-semibold tabular-nums mt-1 ${card.color}`}>{card.value}%</p>
               <p className="text-xs text-muted-foreground mt-0.5">{card.sub}</p>
@@ -578,7 +578,7 @@ export default function LeadListDetailPage({
                                 href={lead.linkedin_url}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-blue-500 hover:underline truncate block max-w-[200px] text-xs"
+                                className="text-info hover:underline truncate block max-w-[200px] text-xs"
                               >
                                 {lead.linkedin_url.replace("https://www.linkedin.com/in/", "")}
                               </a>

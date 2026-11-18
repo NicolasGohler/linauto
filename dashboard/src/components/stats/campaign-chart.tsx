@@ -59,11 +59,11 @@ function CustomTooltip({ active, payload, label, granularity }: CustomTooltipPro
     <div className="rounded-lg border border-border bg-card px-4 py-3 shadow-lg text-xs space-y-1.5 min-w-[160px]">
       <p className="font-semibold text-foreground text-sm">{displayLabel}</p>
       <div className="space-y-1">
-        <Row color="#3b82f6" label="Sent"     value={sent} />
-        <Row color="#22c55e" label="Accepted" value={accepted} extra={sent > 0 ? `${rate}% rate` : undefined} />
-        {errors > 0 && <Row color="#ef4444" label="Errors" value={errors} />}
+        <Row color="var(--chart-5)" label="Sent"     value={sent} />
+        <Row color="var(--chart-1)" label="Accepted" value={accepted} extra={sent > 0 ? `${rate}% rate` : undefined} />
+        {errors > 0 && <Row color="var(--chart-4)" label="Errors" value={errors} />}
         <div className="border-t border-border my-1" />
-        <Row color="#f59e0b" label="Pending"  value={pending} />
+        <Row color="var(--chart-3)" label="Pending"  value={pending} />
       </div>
     </div>
   );
@@ -126,7 +126,7 @@ export function CampaignActivityChart({ campaignId, totalLeads }: CampaignActivi
               className={[
                 "px-3 py-1.5 font-medium transition-colors",
                 i === selected
-                  ? "bg-foreground text-background"
+                  ? "bg-primary text-primary-foreground border-primary"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted",
                 i > 0 ? "border-l border-border" : "",
               ].join(" ")}
@@ -147,10 +147,10 @@ export function CampaignActivityChart({ campaignId, totalLeads }: CampaignActivi
       ) : (
         <ResponsiveContainer width="100%" height={288}>
           <ComposedChart data={chartData} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
             <XAxis
               dataKey="label"
-              tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+              tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
               axisLine={false}
               tickLine={false}
               interval="preserveStartEnd"
@@ -158,7 +158,7 @@ export function CampaignActivityChart({ campaignId, totalLeads }: CampaignActivi
             {/* Left axis: sent / accepted / errors */}
             <YAxis
               yAxisId="left"
-              tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+              tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
               axisLine={false}
               tickLine={false}
               width={28}
@@ -168,7 +168,7 @@ export function CampaignActivityChart({ campaignId, totalLeads }: CampaignActivi
             <YAxis
               yAxisId="right"
               orientation="right"
-              tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+              tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
               axisLine={false}
               tickLine={false}
               width={42}
@@ -183,14 +183,14 @@ export function CampaignActivityChart({ campaignId, totalLeads }: CampaignActivi
                   granularity={tl.granularity}
                 />
               )}
-              cursor={{ fill: "hsl(var(--muted))", opacity: 0.4 }}
+              cursor={{ fill: "var(--muted)", opacity: 0.4 }}
             />
             <Legend
               iconType="circle"
               iconSize={8}
               wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
               formatter={(value) => (
-                <span style={{ color: "hsl(var(--muted-foreground))" }}>{value}</span>
+                <span style={{ color: "var(--muted-foreground)" }}>{value}</span>
               )}
             />
             <Bar yAxisId="left" dataKey="sent"     name="Sent"     fill="#3b82f6" radius={[3,3,0,0]} maxBarSize={32} activeBar={{ fillOpacity: 0.75 }} />

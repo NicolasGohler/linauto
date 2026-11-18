@@ -124,8 +124,8 @@ export default function NewAccountPage() {
             )}
 
             {method === "browser" && (
-              <div className="rounded-md border border-blue-500/30 bg-blue-500/10 px-4 py-3">
-                <p className="text-sm text-blue-400">
+              <div className="rounded-md border border-info-line bg-info-soft/70 px-4 py-3">
+                <p className="text-sm text-info">
                   After creating the account, you&apos;ll be redirected to the account page where you can open a login browser to authenticate with LinkedIn directly.
                 </p>
               </div>

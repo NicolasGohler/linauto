@@ -148,7 +148,7 @@ export function ResumeCampaignDialog({ campaign, open, onOpenChange }: Props) {
         )}
 
         {needsLongPauseConfirm && !isRunning && (
-          <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
+          <div className="rounded-md border border-warning-line bg-warning-soft p-3 text-sm text-warning">
             <div className="font-medium">Long pause detected</div>
             <div className="mt-1">
               This pause is longer than 14 days. A long catchup scan loads many pages

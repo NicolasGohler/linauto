@@ -163,7 +163,7 @@ export function VariableChips({ onInsert, disabled, customVariables, fillRates, 
                   className={cn(
                     "h-6 px-2 font-mono text-xs",
                     c.custom && "border-dashed",
-                    isZero && "border-red-300 dark:border-red-700"
+                    isZero && "border-danger-line"
                   )}
                   // Keep focus in the textarea so the shared bar knows where to insert.
                   onMouseDown={(e) => e.preventDefault()}
@@ -176,8 +176,8 @@ export function VariableChips({ onInsert, disabled, customVariables, fillRates, 
                       className={cn(
                         "ml-1 text-[10px] font-mono px-0.5 rounded leading-none",
                         isZero
-                          ? "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400"
-                          : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                          ? "bg-danger-soft text-danger"
+                          : "bg-warning-soft text-warning"
                       )}
                     >
                       {Math.round(rate * 100)}%
@@ -194,7 +194,7 @@ export function VariableChips({ onInsert, disabled, customVariables, fillRates, 
                   </p>
                 )}
                 {rate !== undefined && rate < 1 && (
-                  <p className={cn("text-xs mt-1 font-medium", isZero ? "text-red-500" : "text-amber-500")}>
+                  <p className={cn("text-xs mt-1 font-medium", isZero ? "text-danger" : "text-warning")}>
                     {isZero ? "No leads have this field, so it will always send as empty" : `${Math.round(rate * 100)}% of leads have this field`}
                   </p>
                 )}
@@ -333,7 +333,7 @@ export const MessageTemplateEditor = forwardRef<
               return (
                 <span key={i}>
                   {seg.leading}
-                  <mark className="bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 rounded px-0.5 not-italic">
+                  <mark className="bg-info-soft text-info rounded px-0.5 not-italic">
                     {seg.example}
                   </mark>
                 </span>
@@ -342,7 +342,7 @@ export const MessageTemplateEditor = forwardRef<
             // empty
             return (
               <span key={i} title={`{{${seg.token}}} has no data for any lead`}>
-                <span className="inline-flex items-center gap-0.5 text-amber-600 dark:text-amber-400 text-xs rounded px-1 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700">
+                <span className="inline-flex items-center gap-0.5 text-warning text-xs rounded px-1 bg-warning-soft border border-warning-line">
                   ⚠ {`{{${seg.token}}}`}
                 </span>
               </span>
@@ -360,9 +360,9 @@ export const MessageTemplateEditor = forwardRef<
             className={cn(
               "ml-4 shrink-0",
               overLimit
-                ? "text-red-500 font-medium"
+                ? "text-danger font-medium"
                 : approachingLimit
-                ? "text-amber-500"
+                ? "text-warning"
                 : "text-muted-foreground"
             )}
           >

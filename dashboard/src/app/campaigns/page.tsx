@@ -216,18 +216,18 @@ function CampaignCard({
           </div>
           <p className="text-xs text-muted-foreground">{c.account_name ?? "—"}</p>
           {isTimedPause ? (
-            <p className="text-xs text-amber-400">
+            <p className="text-xs text-warning">
               Resuming in {countdown}
             </p>
           ) : c.account_status === "cookie_expired" ? (
-            <p className="text-xs text-red-400">
+            <p className="text-xs text-danger">
               Cookie expired — update in{" "}
-              <Link href={`/accounts/${c.account_id}`} className="underline hover:text-red-300" onClick={(e) => e.stopPropagation()}>
+              <Link href={`/accounts/${c.account_id}`} className="underline hover:text-danger" onClick={(e) => e.stopPropagation()}>
                 account settings
               </Link>
             </p>
           ) : c.account_paused_until && new Date(c.account_paused_until) > new Date() ? (
-            <p className="text-xs text-amber-400">
+            <p className="text-xs text-warning">
               Paused — resumes{" "}
               {new Date(c.account_paused_until.endsWith("Z") ? c.account_paused_until : c.account_paused_until + "Z").toLocaleString(undefined, {
                 timeZone: c.account_timezone ?? undefined,
@@ -246,9 +246,9 @@ function CampaignCard({
               <span>{progress.acceptedPct + progress.sentPct + progress.otherPct}%</span>
             </div>
             <div className="flex h-1.5 w-full rounded-full bg-muted overflow-hidden">
-              {progress.acceptedPct > 0 && <div className="h-full bg-emerald-500 transition-all" style={{ width: `${progress.acceptedPct}%` }} />}
-              {progress.sentPct > 0 && <div className="h-full bg-blue-500 transition-all" style={{ width: `${progress.sentPct}%` }} />}
-              {progress.otherPct > 0 && <div className="h-full bg-zinc-500 transition-all" style={{ width: `${progress.otherPct}%` }} />}
+              {progress.acceptedPct > 0 && <div className="h-full bg-success transition-all" style={{ width: `${progress.acceptedPct}%` }} />}
+              {progress.sentPct > 0 && <div className="h-full bg-info transition-all" style={{ width: `${progress.sentPct}%` }} />}
+              {progress.otherPct > 0 && <div className="h-full bg-neutral transition-all" style={{ width: `${progress.otherPct}%` }} />}
             </div>
           </div>
           <div className="flex gap-2 pt-1">

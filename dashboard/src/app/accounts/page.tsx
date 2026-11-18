@@ -186,7 +186,7 @@ export default function AccountsPage() {
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">Pending Requests</p>
-                      <p className={a.pending_requests != null && a.pending_requests > 1000 ? "text-amber-400" : ""}>
+                      <p className={a.pending_requests != null && a.pending_requests > 1000 ? "text-warning" : ""}>
                         {a.pending_invitations_count != null ? a.pending_invitations_count : (a.pending_requests ?? "—")}
                       </p>
                     </div>
@@ -200,7 +200,7 @@ export default function AccountsPage() {
                     </div>
                   </div>
                   {a.paused_until && (
-                    <p className="text-xs text-amber-400">
+                    <p className="text-xs text-warning">
                       Paused until {new Date(a.paused_until.endsWith("Z") ? a.paused_until : a.paused_until + "Z").toLocaleString(undefined, { timeZone: a.timezone ?? undefined })}
                     </p>
                   )}

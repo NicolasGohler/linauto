@@ -140,7 +140,7 @@ function SortableListRow({
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={`flex items-center gap-3 rounded-md border px-3 py-2.5 text-sm transition-colors ${
         isDispatching
-          ? "border-emerald-200 bg-emerald-50/50 dark:border-emerald-800/50 dark:bg-emerald-950/20"
+          ? "border-success-line bg-success-soft/50"
           : "border-border bg-background"
       } ${isDragging ? "opacity-50 shadow-lg" : ""}`}
     >
@@ -173,13 +173,13 @@ function SortableListRow({
             {ll.name}
           </Link>
           {isDispatching && (
-            <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-success-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-success">
+              <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
               Active today
             </span>
           )}
           {isQueued && (
-            <span className="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:bg-blue-900/40 dark:text-blue-400">
+            <span className="shrink-0 rounded-full bg-info-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-info">
               Queued
             </span>
           )}
@@ -194,8 +194,8 @@ function SortableListRow({
         {total > 0 && (
           <div className="mt-1.5 flex items-center gap-2">
             <div className="flex h-1.5 flex-1 rounded-full bg-muted overflow-hidden">
-              <div className="h-full bg-emerald-500 transition-all" style={{ width: `${acceptedPct}%` }} />
-              <div className="h-full bg-blue-400 transition-all" style={{ width: `${sentPct}%` }} />
+              <div className="h-full bg-success transition-all" style={{ width: `${acceptedPct}%` }} />
+              <div className="h-full bg-info transition-all" style={{ width: `${sentPct}%` }} />
               <div className="h-full bg-muted-foreground/25 transition-all" style={{ width: `${otherPct}%` }} />
             </div>
             <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
@@ -208,7 +208,7 @@ function SortableListRow({
       {/* Counts */}
       <div className="shrink-0 text-right text-xs tabular-nums space-y-0.5 hidden sm:block">
         {(pending > 0 || scheduled > 0) && (
-          <div className={scheduled > 0 ? "text-emerald-600 dark:text-emerald-400 font-medium" : "text-muted-foreground"}>
+          <div className={scheduled > 0 ? "text-success font-medium" : "text-muted-foreground"}>
             {scheduled > 0 ? `${scheduled} sched` : `${pending} pending`}
           </div>
         )}
@@ -252,7 +252,7 @@ function SeqWait({ children }: { children: React.ReactNode }) {
 function SeqStep({ n, children }: { n: number; children: React.ReactNode }) {
   return (
     <div className="relative pl-7">
-      <span className="absolute left-0 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-foreground text-background text-[10px] font-medium">
+      <span className="absolute left-0 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-medium">
         {n}
       </span>
       {children}
@@ -630,8 +630,8 @@ export default function CampaignDetailPage({
         </div>
 
         {account?.paused_until && new Date(account.paused_until) > new Date() && (
-          <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3">
-            <p className="text-sm text-amber-400">
+          <div className="rounded-md border border-warning-line bg-warning-soft/70 px-4 py-3">
+            <p className="text-sm text-warning">
               Account <span className="font-medium">{account.name}</span> is paused due to weekly limit — resumes{" "}
               {new Date(account.paused_until.endsWith("Z") ? account.paused_until : account.paused_until + "Z").toLocaleString(undefined, {
                 timeZone: account.timezone ?? undefined,
@@ -692,12 +692,12 @@ export default function CampaignDetailPage({
                             <span className="text-xs text-muted-foreground text-right truncate">{stage.label}</span>
                             <div className="h-5 w-full rounded bg-muted overflow-hidden">
                               <div
-                                className={`h-full rounded transition-all ${i === 0 ? "bg-zinc-500" : i === 1 ? "bg-blue-500" : i === 2 ? "bg-emerald-500" : "bg-emerald-600"}`}
+                                className={`h-full rounded transition-all ${i === 0 ? "bg-neutral" : i === 1 ? "bg-info" : i === 2 ? "bg-success" : "bg-success"}`}
                                 style={{ width: `${barWidth}%` }}
                               />
                             </div>
                             <span className="text-xs text-right tabular-nums">{stage.count.toLocaleString()}</span>
-                            <span className={`text-xs text-right tabular-nums font-medium ${i === 0 ? "text-muted-foreground" : pct >= 40 ? "text-emerald-500" : pct >= 20 ? "text-amber-500" : "text-red-400"}`}>
+                            <span className={`text-xs text-right tabular-nums font-medium ${i === 0 ? "text-muted-foreground" : pct >= 40 ? "text-success" : pct >= 20 ? "text-warning" : "text-danger"}`}>
                               {i === 0 ? "100%" : `${pct}%`}
                             </span>
                           </div>
@@ -745,9 +745,9 @@ export default function CampaignDetailPage({
                               <td className="py-2 text-right">
                                 {listRate !== null ? (
                                   <span className={
-                                    listRate >= 30 ? "text-emerald-500" :
-                                    listRate >= 15 ? "text-amber-500" :
-                                    "text-red-500"
+                                    listRate >= 30 ? "text-success" :
+                                    listRate >= 15 ? "text-warning" :
+                                    "text-danger"
                                   }>
                                     {listRate}%
                                   </span>
@@ -784,10 +784,10 @@ export default function CampaignDetailPage({
                   {(campaign.assigned_lists ?? []).length > 0 && (
                     <div className="flex items-center gap-3 text-xs text-muted-foreground">
                       <span className="flex items-center gap-1">
-                        <span className="h-2 w-2 rounded-full bg-emerald-500" /> Connected
+                        <span className="h-2 w-2 rounded-full bg-success" /> Connected
                       </span>
                       <span className="flex items-center gap-1">
-                        <span className="h-2 w-2 rounded-full bg-blue-400" /> Requested
+                        <span className="h-2 w-2 rounded-full bg-info" /> Requested
                       </span>
                       <span className="flex items-center gap-1">
                         <span className="h-2 w-2 rounded-full bg-muted-foreground/30 border border-border" /> Remaining
@@ -886,8 +886,8 @@ export default function CampaignDetailPage({
                                       {total > 0 && (
                                         <div className="mt-1.5 flex items-center gap-2">
                                           <div className="flex h-1.5 flex-1 rounded-full bg-muted overflow-hidden">
-                                            <div className="h-full bg-emerald-500 transition-all" style={{ width: `${acceptedPct}%` }} />
-                                            <div className="h-full bg-blue-400 transition-all" style={{ width: `${sentPct}%` }} />
+                                            <div className="h-full bg-success transition-all" style={{ width: `${acceptedPct}%` }} />
+                                            <div className="h-full bg-info transition-all" style={{ width: `${sentPct}%` }} />
                                           </div>
                                           <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
                                             {Math.round(donePct)}%
@@ -963,7 +963,7 @@ export default function CampaignDetailPage({
                 {availableLists.length === 0 && (campaign.assigned_lists ?? []).length === 0 && (
                   <p className="text-sm text-muted-foreground">
                     No lists available.{" "}
-                    <Link href="/lead-lists" className="text-blue-500 hover:underline">
+                    <Link href="/lead-lists" className="text-info hover:underline">
                       Create one
                     </Link>
                   </p>

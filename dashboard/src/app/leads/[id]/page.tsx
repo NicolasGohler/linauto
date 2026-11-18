@@ -30,8 +30,9 @@ import {
   ArrowLeft, ExternalLink, Pencil, Check, X,
   Copy, Send, RotateCcw, FastForward, Trash2, Undo2,
   Clock, Zap, MessageSquare, UserCheck, AlertCircle,
-  Link2, Loader2, Search, Sparkles, NotebookPen, Plus,
+  Link2, Loader2, Search, Sparkles, NotebookPen, Plus, ChevronRight,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -83,9 +84,9 @@ const ACTION_ICON: Record<string, React.ReactNode> = {
 };
 
 const ACTION_COLOUR: Record<string, string> = {
-  success: "text-emerald-500 bg-emerald-500/10 border-emerald-500/20",
-  failed: "text-rose-500 bg-rose-500/10 border-rose-500/20",
-  skipped: "text-amber-500 bg-amber-500/10 border-amber-500/20",
+  success: "text-success bg-success-soft/70 border-success-line",
+  failed: "text-danger bg-danger-soft/70 border-danger-line",
+  skipped: "text-warning bg-warning-soft/70 border-warning-line",
 };
 
 // Pretty labels for lead_event types shown in the activity timeline
@@ -172,7 +173,7 @@ function InlineField({
             disabled={saving}
           />
           <button onClick={handleSave} disabled={saving}
-            className="rounded p-1 text-emerald-500 hover:bg-emerald-500/10 transition-colors">
+            className="rounded p-1 text-success hover:bg-success-soft/70 transition-colors">
             <Check className="h-3.5 w-3.5" />
           </button>
           <button onClick={() => setEditing(false)}
@@ -206,6 +207,36 @@ function InlineField({
             <span className="text-xs text-muted-foreground/50">{hint}</span>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── Shared bits for the X and Telegram blocks ────────────────────────────────
+
+const SOCIAL_SHELL = "rounded-[12px] border border-border/80 bg-card/70 px-3 py-2.5 space-y-2";
+const SOCIAL_LABEL = "inline-flex items-center gap-1.5 text-xs font-semibold text-foreground/80";
+const FIND_BTN = "inline-flex items-center gap-1 rounded-[6px] px-1.5 py-0.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40 transition-colors";
+const HANDLE_INPUT = "flex-1 rounded-[7px] border border-border bg-card px-2 py-1 text-sm outline-none focus:border-ring/60 focus:ring-[3px] focus:ring-ring/15";
+
+function ContactedRow({ at, onToggle }: { at: string | null | undefined; onToggle: () => void }) {
+  return (
+    <div className="flex items-center justify-between gap-2 border-t border-border/70 pt-2">
+      {at ? (
+        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-success" title={relativeDate(at).full}>
+          <Check className="h-3.5 w-3.5" /> Contacted {relativeDate(at).label}
+        </span>
+      ) : (
+        <span className="text-xs text-muted-foreground">Not contacted yet</span>
+      )}
+      {at ? (
+        <button onClick={onToggle} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
+          <Undo2 className="h-3 w-3" /> Undo
+        </button>
+      ) : (
+        <button onClick={onToggle} className="inline-flex items-center gap-1 rounded-[7px] border border-border bg-card px-2 py-0.5 text-xs font-medium hover:bg-primary hover:text-primary-foreground hover:border-primary transition-colors">
+          <Check className="h-3 w-3" /> Mark contacted
+        </button>
       )}
     </div>
   );
@@ -324,27 +355,27 @@ function TelegramSection({ lead, onSave, onToggleContacted, activity }: Telegram
   const displayValue = lead.telegram_username;
 
   return (
-    <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2.5 space-y-2">
+    <div className={SOCIAL_SHELL}>
       {/* Label row */}
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-sky-600 dark:text-sky-400">Telegram</span>
+        <span className={SOCIAL_LABEL}><Send className="h-3.5 w-3.5" /> Telegram</span>
         {previousSearchFoundNothing && !taskId ? (
-          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Search className="h-3 w-3" /> No match
+          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+            No match
             <button
               onClick={() => handleFind(true)}
               disabled={findMutation.isPending}
-              className="text-sky-600 dark:text-sky-400 hover:text-sky-500 disabled:opacity-40 transition-colors underline underline-offset-2"
+              className={FIND_BTN}
               title="Re-run Telegram search"
             >
-              retry
+              <RotateCcw className="h-3 w-3" /> Retry
             </button>
           </span>
         ) : (
           <button
             onClick={() => handleFind()}
             disabled={findMutation.isPending || isSearching}
-            className="flex items-center gap-1 text-xs text-sky-600 dark:text-sky-400 hover:text-sky-500 disabled:opacity-40 transition-colors"
+            className={FIND_BTN}
             title="Search Telegram for this lead"
           >
             {isSearching ? (
@@ -366,15 +397,15 @@ function TelegramSection({ lead, onSave, onToggleContacted, activity }: Telegram
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="username"
-            className="flex-1 rounded border border-border bg-background px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-sky-400"
+            className={HANDLE_INPUT}
             disabled={saving}
           />
           <button onClick={handleSave} disabled={saving}
-            className="rounded p-1 text-emerald-500 hover:bg-emerald-500/10 transition-colors">
+            className="rounded-[6px] p-1 text-success hover:bg-success-soft transition-colors">
             <Check className="h-3.5 w-3.5" />
           </button>
           <button onClick={() => setEditing(false)}
-            className="rounded p-1 text-muted-foreground hover:bg-muted transition-colors">
+            className="rounded-[6px] p-1 text-muted-foreground hover:bg-accent transition-colors">
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -382,12 +413,20 @@ function TelegramSection({ lead, onSave, onToggleContacted, activity }: Telegram
         <div className="group flex items-center gap-1.5 min-h-[1.75rem]">
           {displayValue ? (
             <>
-              <span className="text-sm font-medium">@{displayValue}</span>
               <a
                 href={`https://t.me/${displayValue}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-sky-500 hover:text-sky-400 transition-colors"
+                className="text-sm font-semibold hover:underline underline-offset-2"
+                title="Open in Telegram"
+              >
+                @{displayValue}
+              </a>
+              <a
+                href={`https://t.me/${displayValue}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-muted-foreground hover:text-foreground transition-colors"
                 title="Open in Telegram"
               >
                 <ExternalLink className="h-3 w-3" />
@@ -395,12 +434,12 @@ function TelegramSection({ lead, onSave, onToggleContacted, activity }: Telegram
               <CopyButton text={displayValue} label="Copy handle" />
             </>
           ) : (
-            <span className="text-sm text-muted-foreground/50 italic">
+            <span className="text-sm text-muted-foreground/70">
               {isSearching ? "Searching…" : "No handle yet"}
             </span>
           )}
           <button onClick={startEdit}
-            className="opacity-0 group-hover:opacity-100 rounded p-0.5 text-muted-foreground/60 hover:text-muted-foreground transition-all ml-0.5"
+            className="opacity-0 group-hover:opacity-100 rounded p-0.5 text-muted-foreground/60 hover:text-foreground transition-all ml-0.5"
             title="Edit Telegram handle">
             <Pencil className="h-3 w-3" />
           </button>
@@ -417,49 +456,30 @@ function TelegramSection({ lead, onSave, onToggleContacted, activity }: Telegram
         </div>
       )}
 
-      {/* Outreach done toggle — only show when there's a handle */}
+      {/* Outreach done toggle, only when there's a handle */}
       {lead.telegram_username && (
-        <div className="flex items-center justify-between pt-1 border-t border-sky-500/20">
-          {lead.tg_contacted_at ? (
-            <div className="flex items-center gap-1.5">
-              <Check className="h-3.5 w-3.5 text-emerald-500" />
-              <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
-                Contacted {relativeDate(lead.tg_contacted_at).label}
-              </span>
-            </div>
-          ) : (
-            <span className="text-xs text-muted-foreground/60">Not yet contacted</span>
-          )}
-          <button
-            onClick={() => onToggleContacted(!lead.tg_contacted_at)}
-            className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
-              lead.tg_contacted_at
-                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20"
-                : "border-sky-500/30 bg-transparent text-sky-600 dark:text-sky-400 hover:bg-sky-500/10"
-            }`}
-          >
-            {lead.tg_contacted_at ? "↩ Undo" : "✓ Mark contacted"}
-          </button>
-        </div>
+        <ContactedRow at={lead.tg_contacted_at} onToggle={() => onToggleContacted(!lead.tg_contacted_at)} />
       )}
 
       {/* Candidates picker */}
       {candidates.length > 0 && (
-        <div className="pt-1 border-t border-sky-500/20 space-y-1.5">
-          <p className="text-xs text-sky-600/70 dark:text-sky-400/70">
-            {taskId ? "Found — pick the right one:" : "Saved candidates:"}
+        <div className="border-t border-border/70 pt-2 space-y-1.5">
+          <p className="text-xs text-muted-foreground">
+            {taskId ? "Found, pick the right one" : "Candidates"}
           </p>
           <div className="flex flex-wrap gap-1.5">
             {candidates.map((handle) => (
               <button
                 key={handle}
                 onClick={() => pickCandidate(handle)}
-                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors
-                  ${lead.telegram_username === handle
-                    ? "border-sky-500 bg-sky-500/20 text-sky-700 dark:text-sky-300"
-                    : "border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400 hover:bg-sky-500/20 hover:border-sky-500/50"
-                  }`}
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
+                  lead.telegram_username === handle
+                    ? "border-success-line bg-success-soft text-success"
+                    : "border-border bg-card hover:bg-accent"
+                )}
               >
+                {lead.telegram_username === handle && <Check className="h-3 w-3" />}
                 @{handle}
               </button>
             ))}
@@ -470,10 +490,10 @@ function TelegramSection({ lead, onSave, onToggleContacted, activity }: Telegram
       {/* Search logs (collapsed by default) */}
       {searchDone && taskData?.logs && taskData.logs.length > 0 && (
         <details className="text-xs">
-          <summary className="cursor-pointer text-muted-foreground/60 hover:text-muted-foreground select-none">
+          <summary className="cursor-pointer text-muted-foreground/70 hover:text-muted-foreground select-none">
             Search log ({taskData.logs.length} lines)
           </summary>
-          <div className="mt-1 rounded bg-muted/50 p-2 font-mono text-xs leading-relaxed max-h-40 overflow-y-auto space-y-0.5">
+          <div className="mt-1 rounded-[7px] bg-secondary/70 p-2 font-mono text-xs leading-relaxed max-h-40 overflow-y-auto space-y-0.5">
             {taskData.logs.map((line, i) => (
               <p key={i} className="text-muted-foreground">{line}</p>
             ))}
@@ -483,7 +503,7 @@ function TelegramSection({ lead, onSave, onToggleContacted, activity }: Telegram
 
       {/* Error state */}
       {taskData?.status === "error" && (
-        <p className="text-xs text-rose-500">{taskData.error || "Search failed"}</p>
+        <p className="text-xs text-danger">{taskData.error || "Search failed"}</p>
       )}
     </div>
   );
@@ -523,6 +543,9 @@ function XSection({ lead, onSave, onToggleContacted }: XSectionProps) {
     ? taskData.x_alternatives ?? []
     : lead.x_alternatives ?? [];
   const [showAll, setShowAll] = useState(false);
+  // Candidates start collapsed once a handle is chosen; open when there's a choice to make.
+  const [listOpen, setListOpen] = useState(() => !handle);
+  useEffect(() => { if (taskId) setListOpen(true); }, [taskId]);
   // Selected handle first, then best score, then open DMs.
   const sortedCandidates = [...candidates].sort((a, b) => {
     const sel = (c: XCandidate) => (handle?.toLowerCase() === c.username.toLowerCase() ? 1 : 0);
@@ -565,14 +588,16 @@ function XSection({ lead, onSave, onToggleContacted }: XSectionProps) {
     }
   }
 
+  const strongCount = sortedCandidates.filter((c) => c.confident || c.score >= 5).length;
+
   return (
-    <div className="rounded-lg border border-zinc-500/30 bg-zinc-500/5 px-3 py-2.5 space-y-2">
+    <div className={SOCIAL_SHELL}>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-foreground/80">X / Twitter</span>
+        <span className={SOCIAL_LABEL}><XIcon className="h-3 w-3" /> X</span>
         <button
           onClick={handleFind}
           disabled={findMutation.isPending || isSearching}
-          className="flex items-center gap-1 text-xs text-foreground/70 hover:text-foreground disabled:opacity-40 transition-colors"
+          className={FIND_BTN}
           title="Search X for this lead's personal account"
         >
           {isSearching ? <><Loader2 className="h-3 w-3 animate-spin" /> Searching…</> : <><Search className="h-3 w-3" /> Find</>}
@@ -588,13 +613,13 @@ function XSection({ lead, onSave, onToggleContacted }: XSectionProps) {
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") setEditing(false); }}
             placeholder="handle"
-            className="flex-1 rounded border border-border bg-background px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-zinc-400"
+            className={HANDLE_INPUT}
             disabled={saving}
           />
-          <button onClick={() => handleSave()} disabled={saving} className="rounded p-1 text-emerald-500 hover:bg-emerald-500/10 transition-colors">
+          <button onClick={() => handleSave()} disabled={saving} className="rounded-[6px] p-1 text-success hover:bg-success-soft transition-colors">
             <Check className="h-3.5 w-3.5" />
           </button>
-          <button onClick={() => setEditing(false)} className="rounded p-1 text-muted-foreground hover:bg-muted transition-colors">
+          <button onClick={() => setEditing(false)} className="rounded-[6px] p-1 text-muted-foreground hover:bg-accent transition-colors">
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -602,17 +627,19 @@ function XSection({ lead, onSave, onToggleContacted }: XSectionProps) {
         <div className="group flex items-center gap-1.5 min-h-[1.75rem]">
           {handle ? (
             <>
-              <span className="text-sm font-medium">@{handle}</span>
-              <a href={`https://x.com/${handle}`} target="_blank" rel="noopener noreferrer" className="text-foreground/60 hover:text-foreground transition-colors" title="Open on X">
+              <a href={`https://x.com/${handle}`} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold hover:underline underline-offset-2" title="Open on X">
+                @{handle}
+              </a>
+              <a href={`https://x.com/${handle}`} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground transition-colors" title="Open on X">
                 <ExternalLink className="h-3 w-3" />
               </a>
               <CopyButton text={`https://x.com/${handle}`} label="Copy X URL" />
             </>
           ) : (
-            <span className="text-sm text-muted-foreground/50 italic">{isSearching ? "Searching…" : "No handle yet"}</span>
+            <span className="text-sm text-muted-foreground/70">{isSearching ? "Searching…" : "No handle yet"}</span>
           )}
           <button onClick={() => { setDraft(handle ?? ""); setEditing(true); }}
-            className="opacity-0 group-hover:opacity-100 rounded p-0.5 text-muted-foreground/60 hover:text-muted-foreground transition-all ml-0.5" title="Edit X handle">
+            className="opacity-0 group-hover:opacity-100 rounded p-0.5 text-muted-foreground/60 hover:text-foreground transition-all ml-0.5" title="Edit X handle">
             <Pencil className="h-3 w-3" />
           </button>
           {handle && (
@@ -627,72 +654,63 @@ function XSection({ lead, onSave, onToggleContacted }: XSectionProps) {
       )}
 
       {handle && (
-        <div className="flex items-center justify-between pt-1 border-t border-zinc-500/20">
-          {lead.x_contacted_at ? (
-            <div className="flex items-center gap-1.5">
-              <Check className="h-3.5 w-3.5 text-emerald-500" />
-              <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">Contacted {relativeDate(lead.x_contacted_at).label}</span>
-            </div>
-          ) : (
-            <span className="text-xs text-muted-foreground/60">Not yet contacted</span>
-          )}
-          <button
-            onClick={() => onToggleContacted(!lead.x_contacted_at)}
-            className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
-              lead.x_contacted_at
-                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20"
-                : "border-zinc-500/30 bg-transparent text-foreground/70 hover:bg-zinc-500/10"
-            }`}
-          >
-            {lead.x_contacted_at ? "↩ Undo" : "✓ Mark contacted"}
-          </button>
-        </div>
+        <ContactedRow at={lead.x_contacted_at} onToggle={() => onToggleContacted(!lead.x_contacted_at)} />
       )}
 
       {sortedCandidates.length > 0 && (
-        <div className="pt-2 border-t border-zinc-500/20 space-y-2">
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-muted-foreground">
-              {taskId ? "Search results" : "Candidates"} · {sortedCandidates.length}
-            </p>
-            <p className="text-[10px] text-muted-foreground/60">Score ≥ 5 = name + company match</p>
-          </div>
-          <div className="space-y-1.5">
-            {visibleCandidates.map((c) => (
-              <XCandidateCard
-                key={c.username}
-                c={c}
-                selected={handle?.toLowerCase() === c.username.toLowerCase()}
-                busy={saving}
-                onUse={() => handleSave(c.username)}
-              />
-            ))}
-          </div>
-          {sortedCandidates.length > COLLAPSED_COUNT && (
-            <button
-              onClick={() => setShowAll((v) => !v)}
-              className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors py-0.5"
-            >
-              {showAll ? "Show fewer" : `Show ${sortedCandidates.length - COLLAPSED_COUNT} more`}
-            </button>
+        <div className="border-t border-border/70 pt-2">
+          <button
+            onClick={() => setListOpen((v) => !v)}
+            className="flex w-full items-center justify-between gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            title="Score 5+ means the name and company both match"
+          >
+            <span className="inline-flex items-center gap-1">
+              <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", listOpen && "rotate-90")} />
+              {taskId ? "Search results" : "Candidates"}
+              <span className="tabular-nums">({sortedCandidates.length})</span>
+            </span>
+            {strongCount > 0 && (
+              <span className="tabular-nums">{strongCount} strong</span>
+            )}
+          </button>
+          {listOpen && (
+            <div className="mt-2 overflow-hidden rounded-[9px] border border-border/80 bg-card divide-y divide-border/70">
+              {visibleCandidates.map((c) => (
+                <XCandidateRow
+                  key={c.username}
+                  c={c}
+                  selected={handle?.toLowerCase() === c.username.toLowerCase()}
+                  busy={saving}
+                  onUse={() => handleSave(c.username)}
+                />
+              ))}
+              {sortedCandidates.length > COLLAPSED_COUNT && (
+                <button
+                  onClick={() => setShowAll((v) => !v)}
+                  className="w-full py-1.5 text-xs text-muted-foreground hover:bg-accent/60 hover:text-foreground transition-colors"
+                >
+                  {showAll ? "Show fewer" : `Show ${sortedCandidates.length - COLLAPSED_COUNT} more`}
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}
 
       {searchDone && taskData?.logs && taskData.logs.length > 0 && (
         <details className="text-xs">
-          <summary className="cursor-pointer text-muted-foreground/60 hover:text-muted-foreground select-none">Search log ({taskData.logs.length} lines)</summary>
-          <div className="mt-1 rounded bg-muted/50 p-2 font-mono text-xs leading-relaxed max-h-40 overflow-y-auto space-y-0.5">
+          <summary className="cursor-pointer text-muted-foreground/70 hover:text-muted-foreground select-none">Search log ({taskData.logs.length} lines)</summary>
+          <div className="mt-1 rounded-[7px] bg-secondary/70 p-2 font-mono text-xs leading-relaxed max-h-40 overflow-y-auto space-y-0.5">
             {taskData.logs.map((line, i) => <p key={i} className="text-muted-foreground">{line}</p>)}
           </div>
         </details>
       )}
-      {taskData?.status === "error" && <p className="text-xs text-rose-500">{taskData.error || "Search failed"}</p>}
+      {taskData?.status === "error" && <p className="text-xs text-danger">{taskData.error || "Search failed"}</p>}
     </div>
   );
 }
 
-const COLLAPSED_COUNT = 4;
+const COLLAPSED_COUNT = 5;
 
 function formatCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
@@ -700,61 +718,53 @@ function formatCount(n: number): string {
   return String(n);
 }
 
-function XCandidateCard({ c, selected, busy, onUse }: { c: XCandidate; selected: boolean; busy: boolean; onUse: () => void }) {
+function XCandidateRow({ c, selected, busy, onUse }: { c: XCandidate; selected: boolean; busy: boolean; onUse: () => void }) {
   const url = `https://x.com/${c.username}`;
   const strong = c.confident || c.score >= 5;
   return (
-    <div className={`rounded-md border px-2.5 py-2 text-xs transition-colors ${
-      selected ? "border-emerald-500/40 bg-emerald-500/5" : "border-zinc-500/25 bg-background/40 hover:border-zinc-500/50"
-    }`}>
-      <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <a href={url} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline" title="Open profile on X">
-              @{c.username}
-            </a>
-            <a href={url} target="_blank" rel="noopener noreferrer" className="text-foreground/50 hover:text-foreground" title="Open profile on X">
-              <ExternalLink className="h-3 w-3" />
-            </a>
-            <CopyButton text={url} label="Copy X URL" />
-          </div>
-          {c.name && <p className="text-muted-foreground truncate">{c.name}</p>}
+    <div className={cn("flex items-start gap-2.5 px-2.5 py-2 text-xs transition-colors", selected ? "bg-success-soft/60" : "hover:bg-accent/40")}>
+      <span
+        className={cn(
+          "mt-px w-8 shrink-0 rounded-[5px] py-0.5 text-center text-[10px] font-semibold tabular-nums",
+          strong ? "bg-success-soft text-success" : "bg-warning-soft text-warning"
+        )}
+        title="Match score (5+ = name and company match)"
+      >
+        {c.score.toFixed(1)}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <a href={url} target="_blank" rel="noopener noreferrer" className="shrink-0 font-semibold hover:underline underline-offset-2" title="Open profile on X">
+            @{c.username}
+          </a>
+          {c.name && <span className="truncate text-muted-foreground">{c.name}</span>}
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          {c.can_dm != null && (
-            <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-              c.can_dm ? "bg-sky-500/15 text-sky-600 dark:text-sky-400" : "bg-zinc-500/15 text-muted-foreground"
-            }`} title="X reports whether this account accepts DMs">
-              {c.can_dm ? "DM open" : "DM closed"}
-            </span>
-          )}
-          <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-            strong ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
-          }`} title="Match score">
-            {c.score.toFixed(1)}
-          </span>
-        </div>
+        {c.bio && (
+          <p className="mt-0.5 line-clamp-2 leading-snug text-foreground/70 break-words" title={c.bio}>{c.bio}</p>
+        )}
       </div>
-      {c.bio ? (
-        <p className="mt-1 text-foreground/75 leading-snug whitespace-pre-line break-words">{c.bio}</p>
-      ) : (
-        <p className="mt-1 text-muted-foreground/50 italic">No bio</p>
-      )}
-      <div className="mt-1.5 flex items-center justify-between gap-2">
-        <span className="text-[10px] text-muted-foreground/70">
-          {c.followers != null ? `${formatCount(c.followers)} followers` : ""}
-        </span>
+      <div className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+        {c.followers != null && <span className="tabular-nums" title="Followers">{formatCount(c.followers)}</span>}
+        {c.can_dm != null && (
+          <span
+            className={cn("rounded-[5px] px-1 py-px font-medium", c.can_dm ? "bg-info-soft text-info" : "text-muted-foreground/60 line-through")}
+            title={c.can_dm ? "Accepts DMs" : "DMs closed"}
+          >
+            DM
+          </span>
+        )}
+        <CopyButton text={url} label="Copy X URL" />
         {selected ? (
-          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-            <Check className="h-3 w-3" /> Selected
+          <span className="inline-flex w-12 items-center justify-center gap-0.5 font-medium text-success" title="Selected">
+            <Check className="h-3 w-3" />
           </span>
         ) : (
           <button
             onClick={onUse}
             disabled={busy}
-            className="rounded-full border border-zinc-500/30 px-2 py-0.5 text-[11px] font-medium text-foreground/80 hover:bg-zinc-500/10 disabled:opacity-40 transition-colors"
+            className="w-12 rounded-[6px] border border-border bg-card py-0.5 font-medium text-foreground/80 hover:bg-primary hover:text-primary-foreground hover:border-primary disabled:opacity-40 transition-colors"
           >
-            Use this
+            Use
           </button>
         )}
       </div>
@@ -770,7 +780,7 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
       className="rounded p-0.5 text-muted-foreground/60 hover:text-muted-foreground transition-colors"
       title={label ?? "Copy"}
     >
-      {copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
+      {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
     </button>
   );
 }
@@ -781,7 +791,7 @@ function ActivityItem({ entry }: { entry: LeadActivity }) {
   const { label, full } = relativeDate(entry.created_at);
   const isLeadEvent = entry.source === "lead_event";
   const colour = isLeadEvent
-    ? "text-sky-500 bg-sky-500/10 border-sky-500/20"
+    ? "text-info bg-info-soft/70 border-info-line"
     : (ACTION_COLOUR[entry.status] ?? ACTION_COLOUR.skipped);
   const icon = ACTION_ICON[entry.action_type] ?? <Zap className="h-3.5 w-3.5" />;
   const label_ = EVENT_LABELS[entry.action_type] ?? entry.action_type.replace(/_/g, " ");
@@ -818,7 +828,7 @@ function ActivityItem({ entry }: { entry: LeadActivity }) {
           <p className="text-xs text-muted-foreground mt-0.5">{details.phone}{details.source ? ` · via ${details.source}` : ""}</p>
         )}
         {entry.actor_name && (
-          <p className="text-xs text-emerald-400/80 mt-0.5">by {entry.actor_name}</p>
+          <p className="text-xs text-success/80 mt-0.5">by {entry.actor_name}</p>
         )}
         {entry.account_name && (
           <p className="text-xs text-muted-foreground/60 mt-0.5">via {entry.account_name}</p>
@@ -984,7 +994,7 @@ function ActivityFeed({ lead, notes, notesLoading, activity, activityLoading }: 
   ].sort((a, b) => tsMillis(b.created_at) - tsMillis(a.created_at));
 
   return (
-    <div className="rounded-xl border bg-card p-4">
+    <div className="rounded-[14px] border border-border/80 bg-card shadow-soft p-4">
       {/* Campaign status summary */}
       <div className="mb-4 pb-4 border-b">
         <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Campaign Status</h2>
@@ -1016,13 +1026,13 @@ function ActivityFeed({ lead, notes, notesLoading, activity, activityLoading }: 
           </>
         )}
         {lead.error_message && (
-          <div className="rounded-md bg-rose-500/10 border border-rose-500/20 px-3 py-2 mb-3">
-            <p className="text-xs text-rose-600 dark:text-rose-400 font-medium">Error</p>
-            <p className="text-xs text-rose-600/80 dark:text-rose-400/80 mt-0.5">
+          <div className="rounded-md bg-danger-soft/70 border border-danger-line px-3 py-2 mb-3">
+            <p className="text-xs text-danger font-medium">Error</p>
+            <p className="text-xs text-danger/80 mt-0.5">
               {lead.error_message.replace(/_/g, " ")}
             </p>
             {lead.retry_count > 0 && (
-              <p className="text-xs text-rose-600/60 mt-0.5">{lead.retry_count} retry attempt{lead.retry_count !== 1 ? "s" : ""}</p>
+              <p className="text-xs text-danger/60 mt-0.5">{lead.retry_count} retry attempt{lead.retry_count !== 1 ? "s" : ""}</p>
             )}
           </div>
         )}
@@ -1202,7 +1212,7 @@ export default function LeadDetailPage() {
               href={`https://t.me/${lead.telegram_username}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="rounded-md p-2 text-sky-500 hover:bg-sky-500/10 transition-colors"
+              className="rounded-md p-2 text-info hover:bg-info-soft/70 transition-colors"
               title={`Telegram: @${lead.telegram_username}`}
             >
               <Send className="h-4 w-4" />
@@ -1248,7 +1258,7 @@ export default function LeadDetailPage() {
         <div className="min-w-0 space-y-4">
 
           {/* Profile card */}
-          <div className="rounded-xl border bg-card p-4">
+          <div className="rounded-[14px] border border-border/80 bg-card shadow-soft p-4">
             <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Profile</h2>
             {/* Two-column grid — fields flow across both columns, row by row */}
             <div className="grid grid-cols-2 gap-x-6 gap-y-1">
@@ -1292,7 +1302,7 @@ export default function LeadDetailPage() {
                     }
                   }}
                   disabled={enrichPhone.isPending}
-                  className="mb-1.5 flex items-center gap-1 rounded px-2 py-1 text-xs text-violet-600 dark:text-violet-400 border border-violet-500/30 hover:bg-violet-500/10 disabled:opacity-40 transition-colors whitespace-nowrap"
+                  className="mb-1.5 flex items-center gap-1 rounded px-2 py-1 text-xs text-plum border border-plum-line hover:bg-plum-soft/70 disabled:opacity-40 transition-colors whitespace-nowrap"
                   title="Look up phone via Apollo"
                 >
                   {enrichPhone.isPending
@@ -1311,7 +1321,7 @@ export default function LeadDetailPage() {
                         key={ll.id}
                         className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium border ${
                           i === 0
-                            ? "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30"
+                            ? "bg-info-soft/70 text-info border-info-line"
                             : "bg-muted text-muted-foreground border-border"
                         }`}
                         title={`Added ${new Date(ll.added_at.endsWith("Z") ? ll.added_at : ll.added_at + "Z").toLocaleDateString()}`}
@@ -1340,7 +1350,7 @@ export default function LeadDetailPage() {
         <div className="min-w-0 space-y-4">
 
           {/* Social card */}
-          <div className="rounded-xl border bg-card p-4 space-y-1">
+          <div className="rounded-[14px] border border-border/80 bg-card shadow-soft p-4 space-y-1">
             <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Social & Links</h2>
 
             {/* LinkedIn */}
@@ -1390,7 +1400,7 @@ export default function LeadDetailPage() {
 
           {/* Extra data if any */}
           {(extraEntries.length > 0 || outreachMessage) && (
-            <div className="rounded-xl border bg-card p-4">
+            <div className="rounded-[14px] border border-border/80 bg-card shadow-soft p-4">
               <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Additional Data</h2>
               <div className="space-y-1.5">
                 {outreachMessage && (

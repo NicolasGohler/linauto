@@ -448,15 +448,15 @@ function NewBroadcastPageInner() {
                 <div className="rounded-md border border-border/60 bg-muted/20 p-3 space-y-4">
                   <div className="grid gap-1 text-xs text-muted-foreground">
                     <div className="flex items-center gap-2">
-                      <span className="rounded bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 font-medium">Fresh</span>
+                      <span className="rounded bg-success-soft text-success px-1.5 py-0.5 font-medium">Fresh</span>
                       <span>No prior messages → sends Message 1 above</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="rounded bg-blue-500/20 text-blue-400 px-1.5 py-0.5 font-medium">Sent, no reply</span>
+                      <span className="rounded bg-info-soft text-info px-1.5 py-0.5 font-medium">Sent, no reply</span>
                       <span>You messaged, they didn&apos;t reply → sends the message below</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="rounded bg-amber-500/20 text-amber-400 px-1.5 py-0.5 font-medium">They replied</span>
+                      <span className="rounded bg-warning-soft text-warning px-1.5 py-0.5 font-medium">They replied</span>
                       <span>They replied to you → marked for manual outreach, no automated send</span>
                     </div>
                   </div>

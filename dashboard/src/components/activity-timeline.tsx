@@ -115,7 +115,7 @@ function LeadLink({ log }: { log: ActionLog }) {
           href={log.lead_url}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-blue-500 hover:underline truncate"
+          className="text-info hover:underline truncate"
         >
           {name}
         </a>

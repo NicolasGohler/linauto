@@ -38,16 +38,16 @@ export function TgEnrichmentPanel({ campaignId }: TgEnrichmentPanelProps) {
 
   const coveragePct = status?.coverage_pct ?? 0;
   const barColor =
-    coveragePct >= 80 ? "bg-emerald-500" :
-    coveragePct >= 40 ? "bg-amber-500" :
-    "bg-rose-500";
+    coveragePct >= 80 ? "bg-success" :
+    coveragePct >= 40 ? "bg-warning" :
+    "bg-danger";
 
   return (
     <Card>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Send className="h-4 w-4 text-sky-500" />
+            <Send className="h-4 w-4 text-info" />
             <CardTitle className="text-base">Telegram Enrichment</CardTitle>
           </div>
           <Button
@@ -112,7 +112,7 @@ export function TgEnrichmentPanel({ campaignId }: TgEnrichmentPanelProps) {
               </Button>
             )}
             {status.missing === 0 && (
-              <p className="text-center text-xs text-emerald-600 font-medium">
+              <p className="text-center text-xs text-success font-medium">
                 All leads are enriched ✓
               </p>
             )}

@@ -10,11 +10,11 @@ export function LayoutShell({ children }: { children: ReactNode }) {
   return (
     <main
       className={cn(
-        "min-h-screen p-6 transition-[margin] duration-200",
+        "min-h-screen px-4 pb-10 pt-16 md:px-8 md:pt-8 transition-[margin] duration-200",
         // Mobile: no left margin (sidebar is an overlay)
         "ml-0",
         // Desktop: shift right based on sidebar state
-        isOpen ? "md:ml-56" : "md:ml-14"
+        isOpen ? "md:ml-[15.5rem]" : "md:ml-20"
       )}
     >
       {children}

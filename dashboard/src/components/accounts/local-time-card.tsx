@@ -93,27 +93,27 @@ export function LocalTimeCard({
       case "in":
         return {
           label: "In work window",
-          className: "bg-emerald-500/15 text-emerald-500 border-emerald-500/30",
+          className: "bg-success-soft text-success border-success-line",
         };
       case "before":
         return {
           label: "Before work start",
-          className: "bg-zinc-500/15 text-zinc-400 border-zinc-500/30",
+          className: "bg-neutral-soft text-neutral border-neutral-line",
         };
       case "after":
         return {
           label: "After work end",
-          className: "bg-zinc-500/15 text-zinc-400 border-zinc-500/30",
+          className: "bg-neutral-soft text-neutral border-neutral-line",
         };
       case "weekend":
         return {
           label: "Weekend",
-          className: "bg-amber-500/15 text-amber-500 border-amber-500/30",
+          className: "bg-warning-soft text-warning border-warning-line",
         };
       default:
         return {
           label: "Timezone not set",
-          className: "bg-red-500/15 text-red-500 border-red-500/30",
+          className: "bg-danger-soft text-danger border-danger-line",
         };
     }
   })();

@@ -151,13 +151,13 @@ export default function BroadcastsPage() {
                       </div>
                       <div className="flex h-1.5 w-full rounded-full bg-muted overflow-hidden">
                         {p.completePct > 0 && (
-                          <div className="h-full bg-emerald-500" style={{ width: `${p.completePct}%` }} />
+                          <div className="h-full bg-success" style={{ width: `${p.completePct}%` }} />
                         )}
                         {p.sentPct > 0 && (
-                          <div className="h-full bg-blue-500" style={{ width: `${p.sentPct}%` }} />
+                          <div className="h-full bg-info" style={{ width: `${p.sentPct}%` }} />
                         )}
                         {p.skippedPct > 0 && (
-                          <div className="h-full bg-zinc-500" style={{ width: `${p.skippedPct}%` }} />
+                          <div className="h-full bg-neutral" style={{ width: `${p.skippedPct}%` }} />
                         )}
                       </div>
                     </div>

@@ -210,13 +210,13 @@ export function ProxySettings({
         {result && (
           <div className="flex-1 min-w-0">
             {result.ok ? (
-              <p className="text-xs text-green-500 truncate">
+              <p className="text-xs text-success truncate">
                 ✓ Connected — IP {result.ip}
                 {result.country ? ` (${result.country})` : ""}
                 {result.latency_ms ? ` · ${result.latency_ms}ms` : ""}
               </p>
             ) : (
-              <p className="text-xs text-red-500 truncate">
+              <p className="text-xs text-danger truncate">
                 ✗ {result.error || "Failed"}
               </p>
             )}

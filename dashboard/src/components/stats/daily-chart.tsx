@@ -26,10 +26,10 @@ const TIMELINES = [
 ];
 
 const COLORS = {
-  sent:      "#3b82f6", // blue-500
-  accepted:  "#22c55e", // green-500
-  followups: "#f59e0b", // amber-500
-  errors:    "#ef4444", // red-500
+  sent:      "var(--chart-5)", // slate blue
+  accepted:  "var(--chart-1)", // forest
+  followups: "var(--chart-3)", // ochre
+  errors:    "var(--chart-4)", // clay
 };
 
 const LEGEND_LABELS: Record<string, string> = {
@@ -122,7 +122,7 @@ export function DailyChart({ accountId }: DailyChartProps) {
               className={[
                 "px-3 py-1.5 font-medium transition-colors",
                 i === selected
-                  ? "bg-foreground text-background"
+                  ? "bg-primary text-primary-foreground border-primary"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted",
                 i > 0 ? "border-l border-border" : "",
               ].join(" ")}
@@ -140,16 +140,16 @@ export function DailyChart({ accountId }: DailyChartProps) {
       ) : (
         <ResponsiveContainer width="100%" height={260}>
           <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
             <XAxis
               dataKey="date"
-              tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+              tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
               axisLine={false}
               tickLine={false}
               interval="preserveStartEnd"
             />
             <YAxis
-              tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+              tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
               axisLine={false}
               tickLine={false}
               width={28}
@@ -163,14 +163,14 @@ export function DailyChart({ accountId }: DailyChartProps) {
                   label={props.label as string | undefined}
                 />
               )}
-              cursor={{ fill: "hsl(var(--muted))", opacity: 0.4 }}
+              cursor={{ fill: "var(--muted)", opacity: 0.4 }}
             />
             <Legend
               iconType="circle"
               iconSize={8}
               wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
               formatter={(value) => (
-                <span style={{ color: "hsl(var(--muted-foreground))" }}>
+                <span style={{ color: "var(--muted-foreground)" }}>
                   {LEGEND_LABELS[value] ?? value}
                 </span>
               )}

@@ -143,7 +143,7 @@ function EmailCopyButton({ email }: { email: string }) {
       <Tooltip>
         <TooltipTrigger asChild>
           <button onClick={handleCopy} className="ml-1.5 inline-flex items-center text-muted-foreground/60 hover:text-muted-foreground transition-colors">
-            {copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Mail className="h-3 w-3" />}
+            {copied ? <Check className="h-3 w-3 text-success" /> : <Mail className="h-3 w-3" />}
           </button>
         </TooltipTrigger>
         <TooltipContent side="top" className="text-xs">{copied ? "Copied!" : email}</TooltipContent>
@@ -524,9 +524,9 @@ export default function GlobalLeadsPage() {
                                   label={lead.x_contacted_at ? `X: ${lead.twitter_url} · Contacted ${relativeDate(lead.x_contacted_at).label}` : `X: ${lead.twitter_url}`}
                                 >
                                   <span className="relative inline-flex">
-                                    <XIcon className={`h-3 w-3 ${lead.x_contacted_at ? "text-emerald-500" : ""}`} />
+                                    <XIcon className={`h-3 w-3 ${lead.x_contacted_at ? "text-success" : ""}`} />
                                     {lead.x_contacted_at && (
-                                      <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-emerald-500 flex items-center justify-center">
+                                      <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-success flex items-center justify-center">
                                         <Check className="h-1.5 w-1.5 text-white" />
                                       </span>
                                     )}
@@ -539,9 +539,9 @@ export default function GlobalLeadsPage() {
                                   label={lead.tg_contacted_at ? `Telegram: @${lead.telegram_username} · Contacted ${relativeDate(lead.tg_contacted_at).label}` : `Telegram: @${lead.telegram_username}`}
                                 >
                                   <span className="relative inline-flex">
-                                    <Send className={`h-3 w-3 ${lead.tg_contacted_at ? "text-emerald-500" : ""}`} />
+                                    <Send className={`h-3 w-3 ${lead.tg_contacted_at ? "text-success" : ""}`} />
                                     {lead.tg_contacted_at && (
-                                      <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-emerald-500 flex items-center justify-center">
+                                      <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-success flex items-center justify-center">
                                         <Check className="h-1.5 w-1.5 text-white" />
                                       </span>
                                     )}

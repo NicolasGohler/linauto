@@ -35,12 +35,12 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 const STATUS_STYLE: Record<string, string> = {
-  pending: "bg-zinc-500/20 text-zinc-400",
-  sent: "bg-blue-500/20 text-blue-400",
-  sequence_complete: "bg-emerald-500/20 text-emerald-400",
-  skipped: "bg-amber-500/20 text-amber-400",
-  manual_outreach: "bg-purple-500/20 text-purple-400",
-  error: "bg-red-500/20 text-red-400",
+  pending: "bg-neutral-soft text-neutral",
+  sent: "bg-info-soft text-info",
+  sequence_complete: "bg-success-soft text-success",
+  skipped: "bg-warning-soft text-warning",
+  manual_outreach: "bg-plum-soft text-plum",
+  error: "bg-danger-soft text-danger",
 };
 
 export default function BroadcastDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -234,7 +234,7 @@ export default function BroadcastDetailPage({ params }: { params: Promise<{ id: 
               </h1>
               <StatusBadge status={bc.status} />
               {bc.archived && (
-                <span className="text-xs rounded bg-zinc-500/20 text-zinc-400 px-2 py-0.5">
+                <span className="text-xs rounded bg-neutral-soft text-neutral px-2 py-0.5">
                   Archived
                 </span>
               )}
@@ -356,7 +356,7 @@ export default function BroadcastDetailPage({ params }: { params: Promise<{ id: 
             /* ── Edit mode ────────────────────────────────────────────── */
             <div className="space-y-4">
               {bc.status === "active" && (
-                <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
+                <div className="rounded-md border border-warning-line bg-warning-soft/70 px-3 py-2 text-xs text-warning">
                   Broadcast is live — changes apply to all pending leads immediately.
                 </div>
               )}
@@ -436,9 +436,9 @@ export default function BroadcastDetailPage({ params }: { params: Promise<{ id: 
                 {seqRouting === "branch" && (
                   <div className="rounded-md border border-border/60 bg-muted/20 p-3 space-y-3">
                     <div className="grid gap-1 text-xs text-muted-foreground">
-                      <div className="flex items-center gap-2"><span className="rounded bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 font-medium">Fresh</span><span>No prior messages → msg 1 sequence above</span></div>
-                      <div className="flex items-center gap-2"><span className="rounded bg-blue-500/20 text-blue-400 px-1.5 py-0.5 font-medium">Sent, no reply</span><span>→ prior-branch sequence below (shares the same delay)</span></div>
-                      <div className="flex items-center gap-2"><span className="rounded bg-amber-500/20 text-amber-400 px-1.5 py-0.5 font-medium">They replied</span><span>→ manual outreach</span></div>
+                      <div className="flex items-center gap-2"><span className="rounded bg-success-soft text-success px-1.5 py-0.5 font-medium">Fresh</span><span>No prior messages → msg 1 sequence above</span></div>
+                      <div className="flex items-center gap-2"><span className="rounded bg-info-soft text-info px-1.5 py-0.5 font-medium">Sent, no reply</span><span>→ prior-branch sequence below (shares the same delay)</span></div>
+                      <div className="flex items-center gap-2"><span className="rounded bg-warning-soft text-warning px-1.5 py-0.5 font-medium">They replied</span><span>→ manual outreach</span></div>
                     </div>
                     <div className="space-y-1.5">
                       <Label className="text-xs">Prior-branch message 1</Label>
@@ -508,7 +508,7 @@ export default function BroadcastDetailPage({ params }: { params: Promise<{ id: 
                     [bc.message_prior_only, bc.message_prior_only_2, bc.message_prior_only_3]
                       .filter(Boolean)
                       .map((m, i) => (
-                        <div key={i} className="rounded-md border border-purple-500/20 bg-purple-500/5 p-3">
+                        <div key={i} className="rounded-md border border-plum-line bg-plum-soft/70 p-3">
                           <div className="text-xs text-muted-foreground mb-1">
                             Prior-branch msg {i + 1}
                             {i > 0 && (() => {

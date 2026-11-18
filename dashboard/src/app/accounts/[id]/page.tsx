@@ -264,13 +264,13 @@ export default function AccountDetailPage({
               <Button
                 size="sm"
                 variant="outline"
-                className="gap-1.5 border-amber-500/50 text-amber-500 hover:bg-amber-500/10"
+                className="gap-1.5 border-warning text-warning hover:bg-warning-soft/70"
                 onClick={async () => {
                   try { await closeBrowseSession(id); } catch { /* ignore */ }
                   setBrowseSessionActive(false);
                 }}
               >
-                <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                <span className="h-2 w-2 rounded-full bg-warning animate-pulse" />
                 Close LinkedIn Session
               </Button>
             )}
@@ -306,13 +306,13 @@ export default function AccountDetailPage({
 
         {/* Persistent banner — shown while a browse session is active */}
         {browseSessionActive && (
-          <div className="flex items-center justify-between gap-4 border-t border-amber-500/30 bg-amber-500/10 px-6 py-2">
-            <div className="flex items-center gap-2 text-sm text-amber-400">
-              <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
+          <div className="flex items-center justify-between gap-4 border-t border-warning-line bg-warning-soft/70 px-6 py-2">
+            <div className="flex items-center gap-2 text-sm text-warning">
+              <span className="h-2 w-2 rounded-full bg-warning animate-pulse shrink-0" />
               LinkedIn session active — close the tab or click End Session when done
             </div>
             <button
-              className="shrink-0 text-xs font-medium text-amber-400 hover:text-amber-300 transition-colors"
+              className="shrink-0 text-xs font-medium text-warning hover:text-warning transition-colors"
               onClick={async () => {
                 try { await closeBrowseSession(id); } catch { /* ignore */ }
                 setBrowseSessionActive(false);
@@ -326,16 +326,16 @@ export default function AccountDetailPage({
 
       <div className="space-y-6">
         {account.status === "cookie_expired" && (
-          <div className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3">
-            <p className="text-sm text-red-400">
+          <div className="rounded-md border border-danger-line bg-danger-soft/70 px-4 py-3">
+            <p className="text-sm text-danger">
               Login required — use the <span className="font-medium">Manual Login</span> button in the Settings tab to authenticate with LinkedIn.
             </p>
           </div>
         )}
 
         {account.paused_until && new Date(account.paused_until) > new Date() && (
-          <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3">
-            <p className="text-sm text-amber-400">
+          <div className="rounded-md border border-warning-line bg-warning-soft/70 px-4 py-3">
+            <p className="text-sm text-warning">
               Account paused due to weekly limit — resumes{" "}
               {new Date(account.paused_until.endsWith("Z") ? account.paused_until : account.paused_until + "Z").toLocaleString(undefined, {
                 timeZone: account.timezone ?? undefined,
@@ -463,7 +463,7 @@ export default function AccountDetailPage({
               <Card>
                 <CardContent className="pt-6">
                   <p className="text-xs text-muted-foreground">Last Activity</p>
-                  <p className={`mt-1 text-lg font-semibold ${health?.days_since_last_activity != null && health.days_since_last_activity > 1 ? "text-amber-500" : ""}`}>
+                  <p className={`mt-1 text-lg font-semibold ${health?.days_since_last_activity != null && health.days_since_last_activity > 1 ? "text-warning" : ""}`}>
                     {health?.last_action_at
                       ? health.days_since_last_activity === 0
                         ? "Today"
@@ -478,8 +478,8 @@ export default function AccountDetailPage({
                 <CardContent className="pt-6">
                   <p className="text-xs text-muted-foreground">Error Rate (7d)</p>
                   <p className={`mt-1 text-lg font-semibold ${
-                    (health?.error_rate_7d ?? 0) > 25 ? "text-red-500" :
-                    (health?.error_rate_7d ?? 0) > 10 ? "text-amber-500" : ""
+                    (health?.error_rate_7d ?? 0) > 25 ? "text-danger" :
+                    (health?.error_rate_7d ?? 0) > 10 ? "text-warning" : ""
                   }`}>
                     {health ? `${health.error_rate_7d}%` : "—"}
                   </p>
@@ -501,7 +501,7 @@ export default function AccountDetailPage({
               <Card className="mt-4">
                 <CardContent className="pt-6">
                   <p className="text-xs text-muted-foreground mb-1">Last Error</p>
-                  <p className="text-sm text-red-400">{health.last_error_message}</p>
+                  <p className="text-sm text-danger">{health.last_error_message}</p>
                 </CardContent>
               </Card>
             )}
@@ -624,7 +624,7 @@ export default function AccountDetailPage({
                       {stuckLeadsLoading ? "Checking…" : "Check for stuck leads"}
                     </Button>
                   ) : stuckLeadsRecovered !== null ? (
-                    <p className="text-sm text-green-400">
+                    <p className="text-sm text-success">
                       ✓ Requeued {stuckLeadsRecovered} leads back to pending
                     </p>
                   ) : stuckLeadsCount === 0 ? (
@@ -844,16 +844,16 @@ export default function AccountDetailPage({
                     </div>
 
                     {withdrawStatus?.status === "done" && (
-                      <div className="rounded-md border border-green-500/30 bg-green-500/10 px-4 py-3">
-                        <p className="text-sm font-medium text-green-400">
+                      <div className="rounded-md border border-success-line bg-success-soft/70 px-4 py-3">
+                        <p className="text-sm font-medium text-success">
                           Withdrew {withdrawStatus.withdrawn.length} requests
                           {withdrawStatus.db_updated > 0 && ` · ${withdrawStatus.db_updated} leads marked withdrawn`}
                         </p>
                       </div>
                     )}
                     {withdrawStatus?.status === "error" && (
-                      <div className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3">
-                        <p className="text-sm text-red-400">{withdrawStatus.error}</p>
+                      <div className="rounded-md border border-danger-line bg-danger-soft/70 px-4 py-3">
+                        <p className="text-sm text-danger">{withdrawStatus.error}</p>
                       </div>
                     )}
                   </div>
@@ -905,8 +905,8 @@ export default function AccountDetailPage({
                     </Button>
                   </div>
                 ) : (
-                  <div className="rounded-md border border-green-500/30 bg-green-500/10 p-4 space-y-3">
-                    <p className="text-sm font-medium text-green-400">
+                  <div className="rounded-md border border-success-line bg-success-soft/70 p-4 space-y-3">
+                    <p className="text-sm font-medium text-success">
                       Browser session active — complete the login in the new tab, then click Finish.
                     </p>
                     <div className="flex gap-2">
@@ -992,13 +992,13 @@ export default function AccountDetailPage({
 
                   {connectionChecking && (
                     <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                      <svg className="h-4 w-4 shrink-0 animate-spin text-blue-400" fill="none" viewBox="0 0 24 24">
+                      <svg className="h-4 w-4 shrink-0 animate-spin text-info" fill="none" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                       </svg>
                       Checking session via HTTP...
                       <div className="ml-auto h-1.5 w-24 overflow-hidden rounded-full bg-muted">
-                        <div className="h-full w-full origin-left animate-pulse rounded-full bg-blue-500" />
+                        <div className="h-full w-full origin-left animate-pulse rounded-full bg-info" />
                       </div>
                     </div>
                   )}
@@ -1006,10 +1006,10 @@ export default function AccountDetailPage({
                   {!connectionChecking && connectionResult && (
                     <div className={`rounded-md border px-4 py-3 ${
                       connectionResult.valid
-                        ? "border-green-500/30 bg-green-500/10"
-                        : "border-red-500/30 bg-red-500/10"
+                        ? "border-success-line bg-success-soft/70"
+                        : "border-danger-line bg-danger-soft/70"
                     }`}>
-                      <p className={`text-sm font-medium ${connectionResult.valid ? "text-green-400" : "text-red-400"}`}>
+                      <p className={`text-sm font-medium ${connectionResult.valid ? "text-success" : "text-danger"}`}>
                         {connectionResult.valid
                           ? `Session valid (${connectionResult.elapsed_ms}ms)`
                           : connectionResult.reason === "redirected_to_login"
