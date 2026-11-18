@@ -44,7 +44,7 @@ def fake_actions(monkeypatch, callback):
 @pytest.mark.parametrize("failure", ["timeout", "cancel", "database", "cleanup"])
 async def test_failure_preserves_progress_and_requires_review(setup, monkeypatch, failure):
     account, store, pool, repo = setup
-    job = store.claim(account.id, 100, "oldest")
+    job = store.claim(account.id, 50, "oldest")
     entered = asyncio.Event()
 
     async def work(count, **callbacks):
@@ -63,7 +63,7 @@ async def test_failure_preserves_progress_and_requires_review(setup, monkeypatch
     if failure == "timeout":
         monkeypatch.setattr(withdrawal, "WITHDRAWAL_JOB_TIMEOUT", 0.02)
     fake_actions(monkeypatch, work)
-    task = asyncio.create_task(withdrawal.execute_withdrawal(account, repo, job, 100, "oldest", store=store, pool=pool))
+    task = asyncio.create_task(withdrawal.execute_withdrawal(account, repo, job, 50, "oldest", store=store, pool=pool))
     if failure == "cancel":
         await entered.wait()
         task.cancel()
@@ -81,7 +81,7 @@ async def test_failure_preserves_progress_and_requires_review(setup, monkeypatch
 
 async def test_reservation_is_held_through_notification(setup, monkeypatch):
     account, store, pool, repo = setup
-    job = store.claim(account.id, 100, "oldest")
+    job = store.claim(account.id, 50, "oldest")
     alerting, finish = asyncio.Event(), asyncio.Event()
 
     async def fail(count, **kwargs):
@@ -94,25 +94,25 @@ async def test_reservation_is_held_through_notification(setup, monkeypatch):
 
     fake_actions(monkeypatch, fail)
     monkeypatch.setattr(withdrawal, "notify_withdrawal_issue", notify)
-    task = asyncio.create_task(withdrawal.execute_withdrawal(account, repo, job, 100, "oldest", store=store, pool=pool))
+    task = asyncio.create_task(withdrawal.execute_withdrawal(account, repo, job, 50, "oldest", store=store, pool=pool))
     await alerting.wait()
     with pytest.raises(WithdrawalStopped, match="already queued"):
-        store.claim(account.id, 100, "oldest")
+        store.claim(account.id, 50, "oldest")
     finish.set()
     await task
-    newer = store.claim(account.id, 100, "oldest")
+    newer = store.claim(account.id, 50, "oldest")
     store.release(account.id, job)
     assert store.active[account.id] == newer
     assert store.read_job(account.id, job)["notification_delivered"]
     assert store.read_job(str(uuid4()), job) == {}
 
 
-async def test_manual_endpoint_keeps_100_and_does_not_run_browser(setup):
+async def test_manual_endpoint_keeps_cap_and_does_not_run_browser(setup):
     from releasi.api.routes.accounts import start_withdrawal
     account, store, pool, repo = setup
     tasks = BackgroundTasks()
-    result = await start_withdrawal(account.id, {"count": 100, "order": "oldest"}, tasks, repo)
-    assert store.read(account.id)["count"] == 100
+    result = await start_withdrawal(account.id, {"count": 50, "order": "oldest"}, tasks, repo)
+    assert store.read(account.id)["count"] == 50
     assert len(tasks.tasks) == 1 and result["task_id"].startswith("wd-")
     pool.acquire.assert_not_awaited()
 
@@ -121,19 +121,19 @@ async def test_restriction_pauses_account_with_valid_enum_without_resetting_lead
     from releasi.db.models import AccountStatus
     account, store, pool, repo = setup
     repo.update_account = AsyncMock()
-    job = store.claim(account.id, 100, "oldest")
+    job = store.claim(account.id, 50, "oldest")
 
     async def fail(count, **kwargs):
         raise WithdrawalStopped("Restricted", account_action="paused")
 
     fake_actions(monkeypatch, fail)
-    result = await withdrawal.execute_withdrawal(account, repo, job, 100, "oldest", store=store, pool=pool)
+    result = await withdrawal.execute_withdrawal(account, repo, job, 50, "oldest", store=store, pool=pool)
     repo.update_account.assert_awaited_once_with(account, status=AccountStatus.PAUSED)
     repo.mark_lead_withdrawn_by_slug.assert_not_awaited()
     assert result["status"] == "error" and not result["withdrawn"]
 
 
-@pytest.mark.parametrize("count", [101, 0, True, 1.5, "invalid"])
+@pytest.mark.parametrize("count", [51, 0, True, 1.5, "invalid"])
 async def test_bad_manual_count_cannot_queue_a_job(setup, count):
     from releasi.api.routes.accounts import start_withdrawal
     account, store, pool, repo = setup
@@ -148,10 +148,10 @@ async def test_bad_manual_count_cannot_queue_a_job(setup, count):
 async def test_status_endpoint_is_account_scoped_and_keeps_completed_jobs(setup):
     from releasi.api.routes.accounts import get_withdrawal_status
     account, store, pool, repo = setup
-    job = store.claim(account.id, 100, "oldest")
+    job = store.claim(account.id, 50, "oldest")
     store.update(account.id, status="done", withdrawn=["https://www.linkedin.com/in/one"])
     store.release(account.id, job)
-    store.claim(account.id, 100, "oldest")
+    store.claim(account.id, 50, "oldest")
     assert (await get_withdrawal_status(account.id, job, repo))["status"] == "done"
     with pytest.raises(HTTPException) as exc:
         await get_withdrawal_status(str(uuid4()), job, repo)
@@ -185,7 +185,7 @@ async def test_stall_alert_is_delayed_throttled_and_reset(setup, monkeypatch):
     withdrawal.notify_withdrawal_issue.assert_awaited_once()
 
 
-async def test_scheduled_withdrawal_uses_same_100_limit_and_holds_failed_jobs(setup, monkeypatch):
+async def test_scheduled_withdrawal_uses_same_limit_and_holds_failed_jobs(setup, monkeypatch):
     account, store, pool, repo = setup
     account.withdraw_threshold = 1
     account.auto_withdraw_interval_days = 30
@@ -198,7 +198,7 @@ async def test_scheduled_withdrawal_uses_same_100_limit_and_holds_failed_jobs(se
     monkeypatch.setattr(withdrawal, "count_invitations", AsyncMock(return_value=1500))
 
     async def run(account_id, job_id, count, order):
-        assert count == 100 and order == "oldest"
+        assert count == 50 and order == "oldest"
         store.update(account_id, status="error", error="fixture pagination failure")
         store.release(account_id, job_id)
         return store.read(account_id)

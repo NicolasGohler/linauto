@@ -1072,11 +1072,11 @@ async def start_withdrawal(
     account_id: str, body: dict, background_tasks: BackgroundTasks,
     repo: Repository = Depends(get_repo),
 ):
-    """Queue at most 100 withdrawals; never retry or load a scrolling backlog."""
+    """Queue a bounded withdrawal batch; never retry or load a scrolling backlog."""
     from releasi.campaign.withdrawal import run_withdrawal_job
     from releasi.linkedin.pool import get_browser_pool
     from releasi.linkedin.withdrawal_jobs import get_withdrawal_job_store
-    from releasi.linkedin.withdrawal_safety import WithdrawalStopped
+    from releasi.linkedin.withdrawal_safety import MAX_WITHDRAWALS, WithdrawalStopped
     account = await repo.get_account(account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
@@ -1088,10 +1088,10 @@ async def start_withdrawal(
         if isinstance(raw_count, bool) or str(raw_count) != str(count):
             raise ValueError()
     except (ValueError, TypeError, OverflowError):
-        raise HTTPException(status_code=422, detail="count must be an integer between 1 and 100")
+        raise HTTPException(status_code=422, detail=f"count must be an integer between 1 and {MAX_WITHDRAWALS}")
     order = body.get("order", "oldest")
-    if not 1 <= count <= 100 or order not in ("oldest", "newest"):
-        raise HTTPException(status_code=422, detail="count must be 1-100 and order oldest or newest")
+    if not 1 <= count <= MAX_WITHDRAWALS or order not in ("oldest", "newest"):
+        raise HTTPException(status_code=422, detail=f"count must be 1-{MAX_WITHDRAWALS} and order oldest or newest")
     if get_browser_pool().is_busy(account_id):
         raise HTTPException(status_code=409, detail="Account browser is busy or awaiting recovery")
     store = get_withdrawal_job_store()

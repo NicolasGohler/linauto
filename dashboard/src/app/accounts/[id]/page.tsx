@@ -776,7 +776,7 @@ export default function AccountDetailPage({
                         <Input
                           type="number"
                           min={1}
-                          max={100}
+                          max={50}
                           value={withdrawCount}
                           onChange={(e) => setWithdrawCount(e.target.value)}
                           className="w-24 mt-1"
@@ -801,8 +801,8 @@ export default function AccountDetailPage({
                         disabled={withdrawStatus?.status === "running"}
                         onClick={async () => {
                           const n = parseInt(withdrawCount, 10);
-                          if (!n || n < 1 || n > 100) {
-                            toast.error("Enter a number between 1 and 100");
+                          if (!n || n < 1 || n > 50) {
+                            toast.error("Enter a number between 1 and 50");
                             return;
                           }
                           if (!confirm(`Withdraw ${n} ${withdrawOrder === "oldest" ? "oldest" : "newest"} pending connection requests?`)) return;

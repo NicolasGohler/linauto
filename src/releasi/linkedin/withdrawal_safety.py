@@ -5,8 +5,12 @@ import json
 import re
 from urllib.parse import urlsplit
 
-MAX_WITHDRAWALS = 100
-WITHDRAWAL_JOB_TIMEOUT = 30 * 60
+MAX_WITHDRAWALS = 50
+# Pause between withdrawals. A full batch averages about 38 minutes.
+WITHDRAWAL_GAP_MIN_SEC = 30.0
+WITHDRAWAL_GAP_MAX_SEC = 60.0
+# Must cover MAX_WITHDRAWALS at the longest gap (50 minutes) plus page loads.
+WITHDRAWAL_JOB_TIMEOUT = 60 * 60
 WITHDRAWAL_STEP_TIMEOUT = 30
 
 

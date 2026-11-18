@@ -67,10 +67,10 @@ class FakePage:
         url, headers, body = arg
         assert "AbortController" in script and "20000" in script
         if "pagination" in url:
-            start = body["clientArguments"]["payload"]["startIndex"]
+            start = body["clientArguments"]["payload"]["invitationStartIndex"]
             self.reads.append(start)
             assert body["paginationRequest"]["retryCount"] == 0
-            assert body["paginationRequest"]["trigger"]["itemDistanceTrigger"]["preloadLength"] == 10
+            assert body["paginationRequest"]["trigger"]["itemDistanceTrigger"]["preloadLength"] == 250
             if self.failure == "pagination":
                 return {"status": 500, "body": "failure"}
             return {"status": 200, "body": json.dumps({"cards": [card(i) for i in range(start + 1, min(start + 11, self.total + 1))]})}
@@ -94,20 +94,22 @@ def actions_for(page):
 
 
 @pytest.mark.parametrize("order", ["oldest", "newest"])
-async def test_100_withdrawals_with_bounded_pagination_and_progress(monkeypatch, order):
+async def test_max_withdrawals_with_bounded_pagination_and_progress(monkeypatch, order):
     monkeypatch.setattr(actions_module.asyncio, "sleep", AsyncMock())
     page = FakePage()
     confirmed, attempted = AsyncMock(), AsyncMock()
-    result = await actions_for(page).withdraw_invitations(100, order, on_attempt=attempted, on_withdrawn=confirmed)
-    assert len(result) == confirmed.await_count == attempted.await_count == len(page.mutations) == 100
-    assert len(page.reads) == (11 if order == "oldest" else 10)
+    actions = actions_for(page)
+    result = await actions.withdraw_invitations(50, order, on_attempt=attempted, on_withdrawn=confirmed)
+    actions.delay.micro_delay.assert_awaited_with(30.0, 60.0)
+    assert len(result) == confirmed.await_count == attempted.await_count == len(page.mutations) == 50
+    assert len(page.reads) == (6 if order == "oldest" else 5)
     assert page.mutations[0] == ("1500" if order == "oldest" else "1")
 
 
 async def test_pagination_failure_stops_without_fallback_or_mutation():
     page = FakePage(failure="pagination")
     with pytest.raises(WithdrawalStopped, match="no scrolling"):
-        await actions_for(page).withdraw_invitations(100)
+        await actions_for(page).withdraw_invitations(50)
     assert page.reads == [0] and not page.mutations
 
 
@@ -122,7 +124,7 @@ async def test_uncertain_mutation_is_not_retried_or_confirmed(monkeypatch, failu
     confirmed.assert_not_awaited()
 
 
-@pytest.mark.parametrize("count", [0, 101, True, 1.1])
+@pytest.mark.parametrize("count", [0, 51, True, 1.1])
 async def test_invalid_count_never_opens_linkedin(count):
     page = FakePage()
     actions = actions_for(page)
@@ -151,28 +153,28 @@ async def test_login_redirect_is_not_classified_as_generic_network_failure():
 def test_durable_interruption_and_uncertain_retry_hold(tmp_path):
     account = str(uuid4())
     store = WithdrawalJobStore(tmp_path / "jobs")
-    job = store.claim(account, 100, "oldest")
+    job = store.claim(account, 50, "oldest")
     with pytest.raises(WithdrawalStopped, match="already queued"):
-        store.claim(account, 100, "oldest")
+        store.claim(account, 50, "oldest")
     store.update(account, withdrawn=[profile_url(card(1)["profile"])], in_flight={"invitation_id": "2"})
     restarted = WithdrawalJobStore(store.directory)
     state = restarted.read(account)
     assert state["job_id"] == job and state["status"] == "error" and state["needs_review"]
     assert len(state["withdrawn"]) == 1
     with pytest.raises(WithdrawalStopped, match="operator review"):
-        restarted.claim(account, 100, "oldest")
+        restarted.claim(account, 50, "oldest")
     assert (store.directory / (account + ".json")).stat().st_mode & 0o777 == 0o600
 
 
 def test_failure_blocks_auto_but_allows_explicit_manual_retry_when_no_uncertainty(tmp_path):
     account = str(uuid4())
     store = WithdrawalJobStore(tmp_path)
-    store.claim(account, 100, "oldest")
+    store.claim(account, 50, "oldest")
     store.update(account, status="error", error="pagination failed")
     store.release(account)
     with pytest.raises(WithdrawalStopped, match="Automatic withdrawals are held"):
-        store.claim(account, 100, "oldest", automatic=True)
-    assert store.claim(account, 100, "oldest").startswith("wd-")
+        store.claim(account, 50, "oldest", automatic=True)
+    assert store.claim(account, 50, "oldest").startswith("wd-")
 
 
 async def test_job_keeps_partial_progress_and_closes_before_alert(monkeypatch, tmp_path):
@@ -183,7 +185,7 @@ async def test_job_keeps_partial_progress_and_closes_before_alert(monkeypatch, t
     monkeypatch.setattr(withdrawal, "notify_withdrawal_issue", notify)
     account = SimpleNamespace(id=str(uuid4()), name="Fixture", status="active", archived=False, paused_until=None)
     store = WithdrawalJobStore(tmp_path)
-    job = store.claim(account.id, 100, "oldest")
+    job = store.claim(account.id, 50, "oldest")
     pool = SimpleNamespace(is_busy=lambda _: False, acquire=AsyncMock(), close_owned_page=AsyncMock())
     pool.acquire.return_value.new_page = AsyncMock(return_value=object())
     repo = SimpleNamespace(mark_lead_withdrawn_by_slug=AsyncMock(return_value=True), log_action=AsyncMock())
@@ -199,10 +201,15 @@ async def test_job_keeps_partial_progress_and_closes_before_alert(monkeypatch, t
             raise WithdrawalStopped("Uncertain second result")
 
     monkeypatch.setattr(withdrawal, "LinkedInActions", Partial)
-    state = await withdrawal.execute_withdrawal(account, repo, job, 100, "oldest", store=store, pool=pool)
+    state = await withdrawal.execute_withdrawal(account, repo, job, 50, "oldest", store=store, pool=pool)
     assert state["status"] == "error" and state["needs_review"]
     assert state["withdrawn"] == [profile_url(card(1)["profile"])] and state["db_updated"] == 1
     repo.mark_lead_withdrawn_by_slug.assert_awaited_once_with("person-1", account_id=account.id)
     pool.close_owned_page.assert_awaited_once()
     notify.assert_awaited_once()
     assert not store.active
+
+
+def test_job_deadline_covers_a_full_batch_at_the_slowest_pace():
+    from releasi.linkedin import withdrawal_safety as safety
+    assert safety.WITHDRAWAL_JOB_TIMEOUT > safety.MAX_WITHDRAWALS * safety.WITHDRAWAL_GAP_MAX_SEC

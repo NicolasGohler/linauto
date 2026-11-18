@@ -18,7 +18,8 @@ from releasi.linkedin.detector import LimitDetector, DetectionResult, DetectionT
 from releasi.linkedin import selectors
 from releasi.safety.delays import DelayGenerator
 from releasi.linkedin.withdrawal_safety import (
-    MAX_WITHDRAWALS, WITHDRAWAL_JOB_TIMEOUT, WITHDRAWAL_STEP_TIMEOUT,
+    MAX_WITHDRAWALS, WITHDRAWAL_GAP_MAX_SEC, WITHDRAWAL_GAP_MIN_SEC,
+    WITHDRAWAL_JOB_TIMEOUT, WITHDRAWAL_STEP_TIMEOUT,
     WithdrawalStopped, invitation_pairs, withdrawal_receipt,
 )
 
@@ -1800,7 +1801,7 @@ class LinkedInActions:
     ) -> list:
         """Bounded withdrawal with no scrolling, fallback, or automatic retry."""
         if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= MAX_WITHDRAWALS:
-            raise WithdrawalStopped("Withdrawal count must be between 1 and 100.")
+            raise WithdrawalStopped(f"Withdrawal count must be between 1 and {MAX_WITHDRAWALS}.")
         if order not in ("oldest", "newest"):
             raise WithdrawalStopped("Withdrawal order must be oldest or newest.")
         try:
@@ -2100,7 +2101,7 @@ class LinkedInActions:
                 await on_withdrawn(profile)
             logger.info("action.invitation_withdrawn", inv_id=inv_id, order=order)
             if len(withdrawn_urls) < len(pairs):
-                await self.delay.micro_delay(8.0, 12.0)
+                await self.delay.micro_delay(WITHDRAWAL_GAP_MIN_SEC, WITHDRAWAL_GAP_MAX_SEC)
 
         return withdrawn_urls
 

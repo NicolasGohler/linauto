@@ -67,7 +67,7 @@ class WithdrawalJobStore:
 
     def claim(self, account_id, count, order, *, automatic=False):
         if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= MAX_WITHDRAWALS:
-            raise WithdrawalStopped("Withdrawal count must be between 1 and 100.")
+            raise WithdrawalStopped(f"Withdrawal count must be between 1 and {MAX_WITHDRAWALS}.")
         if order not in ("oldest", "newest"):
             raise WithdrawalStopped("Withdrawal order must be oldest or newest.")
         previous = self.read(account_id)

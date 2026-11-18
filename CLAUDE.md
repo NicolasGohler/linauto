@@ -62,7 +62,7 @@ docker run -d --name releasi --restart unless-stopped \
 The dashboard (`dashboard/`) is deployed on Vercel and **is git-connected** — pushing to `master` on GitHub triggers an automatic Vercel deployment. No manual `npx vercel deploy` needed.
 
 - To deploy frontend changes: `git push` (Vercel picks it up automatically)
-- Vercel project is linked to the `NicolasGohler/releasi` GitHub repo, `master` branch
+- Vercel project is linked to the `NicolasGohler/linauto` GitHub repo, `master` branch
 
 ## Dashboard → API security model
 
@@ -318,7 +318,7 @@ The `leads` table has social/outreach columns enriched outside the main LinkedIn
 | `tg_contacted_at` | `DateTime` | UTC timestamp set when user marks "contacted via Telegram"; NULL = not yet contacted |
 | `email` | `String` | Email from CSV import |
 
-**Backfill note**: older CSVs stored social data in `extra_data` rather than the typed columns. If new imports contain social data in `extra_data`, run a backfill script targeting the relevant keys (e.g. `extra_data["Twitter Url"]` → `twitter_url`).
+**`twitter_url` is the person's own X account only.** Company or project X accounts live in `extra_data["company_x_url"]` (shown as "Company X" on the lead page). Apollo's export column "Twitter Url" is the **company's** account (it sits with the Company columns), and so is `project_twitter`; never backfill either into `twitter_url`. As of 2026-11-12: 132 leads have a personal X, 3,615 have a company X, none overlap.
 
 ## lead_events Table (migration 023)
 
@@ -430,13 +430,13 @@ A manual withdrawal panel lives in the account Settings tab. It lets you:
 1. **Check count** — navigates to `linkedin.com/mynetwork/invitation-manager/sent/` via browser+proxy and reads the "People (N)" filter pill.
 2. **Withdraw N oldest/newest** — runs `actions.withdraw_invitations(count, order)` as a background task; polls `/accounts/{id}/invitations/withdraw/{task_id}` every 3s; marks matched leads `WITHDRAWN` in the DB.
 - API endpoints: `POST /accounts/{id}/invitations/count`, `POST /accounts/{id}/invitations/withdraw`, `GET /accounts/{id}/invitations/withdraw/{task_id}`.
-- Safe limit: 100 per session (LinkedIn tolerates this without triggering automation signals).
+- Limit: 50 per run with 30-60s between withdrawals (`withdrawal_safety.py`). A full run holds the account's browser for about 38 minutes.
 
 ## Scheduled Auto-Withdraw
 
 `withdraw_invitations_sweep` APScheduler job fires hourly; per-account logic enforces the configured interval.
 
-**How it works:** skips accounts where `withdraw_threshold` is NULL; checks if `auto_withdraw_interval_days` have elapsed; reads live pending count via browser; if `live_count > withdraw_threshold`, withdraws oldest invitations targeting a randomised count just below the threshold (within 5%), capped at 200/session. Stamps `auto_withdraw_last_run` regardless of whether withdrawal was needed.
+**How it works:** skips accounts where `withdraw_threshold` is NULL; checks if `auto_withdraw_interval_days` have elapsed; reads live pending count via browser; if `live_count > withdraw_threshold`, withdraws oldest invitations targeting a randomised count just below the threshold (within 5%), capped at `MAX_WITHDRAWALS` (50) per run. Stamps `auto_withdraw_last_run` regardless of whether withdrawal was needed.
 
 **Account model fields** (migration 017):
 - `withdraw_threshold: Optional[int]` — trigger threshold; NULL = disabled
