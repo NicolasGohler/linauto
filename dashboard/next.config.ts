@@ -4,6 +4,10 @@ import type { NextConfig } from "next";
 // src/app/api/v1/[...path]/route.ts, which injects BACKEND_API_KEY and
 // forwards to BACKEND_URL. No rewrites needed — the key must never reach
 // the browser.
-const nextConfig: NextConfig = {};
+const nextConfig: NextConfig = {
+  experimental: {
+    agentUpgrade: "security",
+  },
+};
 
 export default nextConfig;
